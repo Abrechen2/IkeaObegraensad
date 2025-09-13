@@ -3,12 +3,12 @@
 #include <ESP8266WebServer.h>
 #include <time.h>
 
-#include "display/Matrix.h"
-#include "effects/Effect.h"
-#include "effects/Snake.h"
-#include "effects/Clock.h"
-#include "effects/Rain.h"
-#include "effects/Bounce.h"
+#include "Matrix.h"
+#include "Effect.h"
+#include "Snake.h"
+#include "Clock.h"
+#include "Rain.h"
+#include "Bounce.h"
 #include "secrets.h"
 
 ESP8266WebServer server(80);

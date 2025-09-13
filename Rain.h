@@ -2,7 +2,7 @@
 #define EFFECT_RAIN_H
 
 #include "Effect.h"
-#include "../display/Matrix.h"
+#include "Matrix.h"
 
 namespace RainEffect {
   struct Drop { uint8_t x; int8_t y; };

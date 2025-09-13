@@ -2,7 +2,7 @@
 #define EFFECT_BOUNCE_H
 
 #include "Effect.h"
-#include "../display/Matrix.h"
+#include "Matrix.h"
 
 namespace BounceEffect {
   extern uint8_t x, y;

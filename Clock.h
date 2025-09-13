@@ -2,7 +2,7 @@
 #define EFFECT_CLOCK_H
 
 #include "Effect.h"
-#include "../display/Matrix.h"
+#include "Matrix.h"
 #include <time.h>
 
 namespace ClockEffect {
