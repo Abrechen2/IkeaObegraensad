@@ -24,10 +24,10 @@ void setup() {
 void loop() {
   static uint16_t pixel = 0;         // aktuelles Pixel (0–255)
   uint8_t frame[32];                 // 16*16 Bits / 8 = 32 Bytes
-  memset(frame, 0, sizeof(frame));
+  memset(frame, 0xFF, sizeof(frame));
 
-  // einzelnes Pixel setzen
-  frame[pixel >> 3] = 0x80 >> (pixel & 7);
+  // einzelnes Pixel setzen (active low)
+  frame[pixel >> 3] &= ~(0x80 >> (pixel & 7));
 
   shiftOutBuffer(frame, sizeof(frame));
 
