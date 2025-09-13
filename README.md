@@ -12,6 +12,8 @@ be displayed both on the matrix and in the web interface.
 * **Clock** – simple digital clock synced via NTP
 * **Rain** – random raindrops falling down the display
 * **Bounce** – single pixel bouncing off the display edges
+* **Stars** – scattered points that twinkle randomly
+* **Lines** – moving vertical stripes sweeping across the matrix
 
 Connect to the device's WiFi network and open the root page to switch
 effects. The page displays the current time from the NTP server and offers
