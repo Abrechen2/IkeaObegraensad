@@ -8,9 +8,7 @@
 #include "effects/Clock.h"
 #include "effects/Rain.h"
 
-// TODO: Replace with your WiFi credentials
-const char *ssid = "YOUR_SSID";
-const char *password = "YOUR_PASSWORD";
+
 
 ESP8266WebServer server(80);
 Effect *currentEffect = &snakeEffect;
