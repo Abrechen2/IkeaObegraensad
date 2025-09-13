@@ -7,8 +7,7 @@
 #include "effects/Snake.h"
 #include "effects/Clock.h"
 #include "effects/Rain.h"
-
-
+#include "secrets.h"
 
 ESP8266WebServer server(80);
 Effect *currentEffect = &snakeEffect;

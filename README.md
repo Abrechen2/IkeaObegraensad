@@ -13,5 +13,6 @@ effects. The matrix is updated via SPI using custom display routines.
 Connect to the device's WiFi network and open the root page to switch
 effects.
 
-Replace the `ssid` and `password` constants in `IkeaObegraensad.ino`
-with your own network credentials before uploading.
+To configure WiFi access, copy `secrets_template.h` to `secrets.h` and replace
+the placeholder `ssid` and `password` values with your network credentials
+before uploading.
