@@ -2,7 +2,7 @@
 #define EFFECT_SNAKE_H
 
 #include "Effect.h"
-#include "../display/Matrix.h"
+#include "Matrix.h"
 
 namespace SnakeEffect {
   const uint8_t LENGTH = 8;
