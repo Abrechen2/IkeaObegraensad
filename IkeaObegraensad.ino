@@ -9,6 +9,8 @@
 #include "Clock.h"
 #include "Rain.h"
 #include "Bounce.h"
+#include "Stars.h"
+#include "Lines.h"
 #include "secrets.h"
 
 ESP8266WebServer server(80);
@@ -38,6 +40,8 @@ void handleRoot() {
   html += "<a class='btn' href='/effect/clock'>Clock</a>";
   html += "<a class='btn' href='/effect/rain'>Rain</a>";
   html += "<a class='btn' href='/effect/bounce'>Bounce</a>";
+  html += "<a class='btn' href='/effect/stars'>Stars</a>";
+  html += "<a class='btn' href='/effect/lines'>Lines</a>";
   html += "</body></html>";
   server.send(200, "text/html", html);
 }
@@ -65,6 +69,8 @@ void setup() {
   server.on("/effect/clock", []() { selectEffect(&clockEffect); });
   server.on("/effect/rain", []() { selectEffect(&rainEffect); });
   server.on("/effect/bounce", []() { selectEffect(&bounceEffect); });
+  server.on("/effect/stars", []() { selectEffect(&starsEffect); });
+  server.on("/effect/lines", []() { selectEffect(&linesEffect); });
   server.begin();
 
   currentEffect->init();
