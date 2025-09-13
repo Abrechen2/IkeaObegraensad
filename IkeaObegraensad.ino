@@ -11,6 +11,21 @@ const uint8_t PIN_DATA   = D3;   // GPIO13, MOSI
 // Pixel in der Mitte des 16x16 Feldes
 const uint16_t MID_PIXEL = (8 * 16) + 8;
 
+// Hilfsfunktionen für den aktiven Low-Frame
+void clearFrame(uint8_t *buffer, size_t size) {
+  // setzt alle Bits auf 1 = LEDs aus
+  memset(buffer, 0xFF, size);
+}
+
+void setPixel(uint8_t *buffer, uint16_t index, bool on) {
+  uint8_t mask = 0x80 >> (index & 7);
+  if (on) {
+    buffer[index >> 3] &= ~mask;   // Bit auf 0 -> LED an
+  } else {
+    buffer[index >> 3] |= mask;    // Bit auf 1 -> LED aus
+  }
+}
+
 void shiftOutBuffer(uint8_t *buffer, size_t size) {
   Serial.println("Sende Frame");
   digitalWrite(PIN_ENABLE, HIGH);
@@ -33,10 +48,10 @@ void setup() {
 
 void loop() {
   uint8_t frame[32];                 // 16*16 Bits / 8 = 32 Bytes
-  memset(frame, 0xFF, sizeof(frame));
+  clearFrame(frame, sizeof(frame));  // alle LEDs aus
 
-  // einzelnes Pixel setzen (active-low buffer)
-  frame[MID_PIXEL >> 3] &= ~(0x80 >> (MID_PIXEL & 7));
+  // einzelnes Pixel in der Mitte aktivieren
+  setPixel(frame, MID_PIXEL, true);
 
   Serial.print("Frame-Inhalt: ");
   for (uint8_t i = 0; i < sizeof(frame); ++i) {
