@@ -1,91 +1,59 @@
 #include <Arduino.h>
-#include <SPI.h>
+#include <ESP8266WiFi.h>
+#include <ESP8266WebServer.h>
 
-// Pin-Belegung für den D1 mini
-const uint8_t PIN_ENABLE = D0;   // GPIO16, OE (active low)
-const uint8_t PIN_LATCH  = D3;   // GPIO0, LE
-const uint8_t PIN_CLOCK  = D5;   // GPIO14, SCK
-const uint8_t PIN_DATA   = D7;   // GPIO13, MOSI
-// optional: const uint8_t PIN_BUTTON = D4; // GPIO2
+#include "display/Matrix.h"
+#include "effects/Effect.h"
+#include "effects/Snake.h"
+#include "effects/Clock.h"
+#include "effects/Rain.h"
 
-// Snake-Konfiguration
-const uint8_t SNAKE_LENGTH = 8;
-uint16_t snake[SNAKE_LENGTH];
+// TODO: Replace with your WiFi credentials
+const char *ssid = "YOUR_SSID";
+const char *password = "YOUR_PASSWORD";
 
-// Hilfsfunktionen für den aktiven Low-Frame
-void clearFrame(uint8_t *buffer, size_t size) {
-  // setzt alle Bits auf 1 = LEDs aus
-  memset(buffer, 0xFF, size);
+ESP8266WebServer server(80);
+Effect *currentEffect = &snakeEffect;
+
+void handleRoot() {
+  String html = "<h1>Ikea Obegraensad</h1><ul>";
+  html += "<li><a href=\"/effect/snake\">Snake</a></li>";
+  html += "<li><a href=\"/effect/clock\">Clock</a></li>";
+  html += "<li><a href=\"/effect/rain\">Rain</a></li>";
+  html += "</ul>";
+  server.send(200, "text/html", html);
 }
 
-void setPixel(uint8_t *buffer, uint16_t index, bool on) {
-  uint8_t mask = 0x80 >> (index & 7);
-  if (on) {
-    buffer[index >> 3] &= ~mask;   // Bit auf 0 -> LED an
-  } else {
-    buffer[index >> 3] |= mask;    // Bit auf 1 -> LED aus
-  }
-}
-
-void initSnake() {
-  for (uint8_t i = 0; i < SNAKE_LENGTH; ++i) {
-    snake[i] = i;
-  }
-}
-
-void moveSnake() {
-  for (uint8_t i = 0; i < SNAKE_LENGTH - 1; ++i) {
-    snake[i] = snake[i + 1];
-  }
-  snake[SNAKE_LENGTH - 1] = (snake[SNAKE_LENGTH - 1] + 1) % 256;
-}
-
-// Hilfsfunktionen für den aktiven Low-Frame
-void clearFrame(uint8_t *buffer, size_t size) {
-  // setzt alle Bits auf 1 = LEDs aus
-  memset(buffer, 0xFF, size);
-}
-
-void setPixel(uint8_t *buffer, uint16_t index, bool on) {
-  uint8_t mask = 0x80 >> (index & 7);
-  if (on) {
-    buffer[index >> 3] &= ~mask;   // Bit auf 0 -> LED an
-  } else {
-    buffer[index >> 3] |= mask;    // Bit auf 1 -> LED aus
-  }
-}
-
-void shiftOutBuffer(uint8_t *buffer, size_t size) {
-  Serial.println("Sende Frame");
-  digitalWrite(PIN_ENABLE, HIGH);
-  digitalWrite(PIN_LATCH, LOW);
-  SPI.writeBytes(buffer, size);
-  digitalWrite(PIN_LATCH, HIGH);
-  digitalWrite(PIN_ENABLE, LOW);
-  Serial.println("Frame gesendet");
+void selectEffect(Effect *e) {
+  currentEffect = e;
+  currentEffect->init();
+  server.send(200, "text/plain", String("Selected ") + currentEffect->name);
 }
 
 void setup() {
   Serial.begin(115200);
-  Serial.println("Setup gestartet");
-  pinMode(PIN_ENABLE, OUTPUT);
-  pinMode(PIN_LATCH,  OUTPUT);
-  SPI.begin();                       // nutzt automatisch D5/D7
-  digitalWrite(PIN_ENABLE, LOW);     // LEDs aktivieren
-  initSnake();
-  Serial.println("Setup fertig");
+  matrixSetup();
+
+  WiFi.mode(WIFI_STA);
+  WiFi.begin(ssid, password);
+  while (WiFi.status() != WL_CONNECTED) {
+    delay(500);
+  }
+
+  server.on("/", handleRoot);
+  server.on("/effect/snake", []() { selectEffect(&snakeEffect); });
+  server.on("/effect/clock", []() { selectEffect(&clockEffect); });
+  server.on("/effect/rain", []() { selectEffect(&rainEffect); });
+  server.begin();
+
+  currentEffect->init();
 }
 
 void loop() {
-  uint8_t frame[32];                 // 16*16 Bits / 8 = 32 Bytes
+  server.handleClient();
+  uint8_t frame[32];
   clearFrame(frame, sizeof(frame));
-
-
-  for (uint8_t i = 0; i < SNAKE_LENGTH; ++i) {
-    setPixel(frame, snake[i], true);
-  }
-
+  currentEffect->draw(frame);
   shiftOutBuffer(frame, sizeof(frame));
-  moveSnake();
-  delay(100);
+  delay(50);
 }
