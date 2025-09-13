@@ -18,16 +18,16 @@ inline void matrixSetup() {
 }
 
 inline void clearFrame(uint8_t *buffer, size_t size) {
-  memset(buffer, 0xFF, size); // all bits high -> LEDs off
+  memset(buffer, 0x00, size); // all bits low -> LEDs off
 }
 
 inline void setPixel(uint8_t *buffer, uint8_t x, uint8_t y, bool on) {
   uint16_t index = y * 16 + x;
   uint8_t mask = 0x80 >> (index & 7);
   if (on) {
-    buffer[index >> 3] &= ~mask; // bit 0 -> LED on
+    buffer[index >> 3] |= mask;  // bit 1 -> LED on
   } else {
-    buffer[index >> 3] |= mask;  // bit 1 -> LED off
+    buffer[index >> 3] &= ~mask; // bit 0 -> LED off
   }
 }
 
