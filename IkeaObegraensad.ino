@@ -9,9 +9,11 @@ const uint8_t PIN_DATA   = D3;   // GPIO13, MOSI
 // optional: const uint8_t PIN_BUTTON = D4; // GPIO2
 
 void shiftOutBuffer(uint8_t *buffer, size_t size) {
+  digitalWrite(PIN_ENABLE, HIGH);
   digitalWrite(PIN_LATCH, LOW);
   SPI.writeBytes(buffer, size);
   digitalWrite(PIN_LATCH, HIGH);
+  digitalWrite(PIN_ENABLE, LOW);
 }
 
 void setup() {
