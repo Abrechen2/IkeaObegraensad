@@ -33,10 +33,10 @@ void setup() {
 
 void loop() {
   uint8_t frame[32];                 // 16*16 Bits / 8 = 32 Bytes
-  memset(frame, 0x00, sizeof(frame));
+  memset(frame, 0xFF, sizeof(frame));
 
-  // einzelnes Pixel setzen (active high)
-  frame[MID_PIXEL >> 3] |= (0x80 >> (MID_PIXEL & 7));
+  // einzelnes Pixel setzen (active-low buffer)
+  frame[MID_PIXEL >> 3] &= ~(0x80 >> (MID_PIXEL & 7));
 
   Serial.print("Frame-Inhalt: ");
   for (uint8_t i = 0; i < sizeof(frame); ++i) {
