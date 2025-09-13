@@ -58,12 +58,10 @@ void setup() {
 
 uint8_t frame[32];
   clearFrame(frame, sizeof(frame));
-  setPixel(frame, 0, 0, true);      // oben links
-  setPixel(frame, 15, 0, true);     // oben rechts
-  setPixel(frame, 0, 15, true);     // unten links
-  setPixel(frame, 15, 15, true);    // unten rechts
+  setPixel(frame, 0, 0, true);      // first pixel
+  setPixel(frame, 15, 15, true);    // last pixel
   shiftOutBuffer(frame, sizeof(frame));
-  delay(5000);                      // Anzeige für 5 Sekunde
+  delay(5000);                      // Anzeige für 5 Sekunden
 
   WiFi.mode(WIFI_STA);
   WiFi.begin(ssid, password);
