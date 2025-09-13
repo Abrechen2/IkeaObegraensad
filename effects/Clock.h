@@ -34,7 +34,7 @@ namespace ClockEffect {
   }
 
   inline void init() {
-    configTime(0, 0, "pool.ntp.org", "time.nist.gov");
+    // Time is synchronized globally via NTP in the main sketch
   }
 
   inline void draw(uint8_t *frame) {
