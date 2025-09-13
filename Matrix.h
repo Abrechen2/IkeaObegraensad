@@ -22,6 +22,9 @@ inline void clearFrame(uint8_t *buffer, size_t size) {
 }
 
 inline void setPixel(uint8_t *buffer, uint8_t x, uint8_t y, bool on) {
+  if ((y & 1) == 0) {
+    x = 15 - x;               // even rows are wired right-to-left
+  }
   uint16_t index = y * 16 + x;
   uint8_t mask = 0x80 >> (index & 7);
   if (on) {
