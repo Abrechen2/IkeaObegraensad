@@ -40,6 +40,21 @@ void moveSnake() {
   snake[SNAKE_LENGTH - 1] = (snake[SNAKE_LENGTH - 1] + 1) % 256;
 }
 
+// Hilfsfunktionen für den aktiven Low-Frame
+void clearFrame(uint8_t *buffer, size_t size) {
+  // setzt alle Bits auf 1 = LEDs aus
+  memset(buffer, 0xFF, size);
+}
+
+void setPixel(uint8_t *buffer, uint16_t index, bool on) {
+  uint8_t mask = 0x80 >> (index & 7);
+  if (on) {
+    buffer[index >> 3] &= ~mask;   // Bit auf 0 -> LED an
+  } else {
+    buffer[index >> 3] |= mask;    // Bit auf 1 -> LED aus
+  }
+}
+
 void shiftOutBuffer(uint8_t *buffer, size_t size) {
   Serial.println("Sende Frame");
   digitalWrite(PIN_ENABLE, HIGH);
@@ -64,6 +79,7 @@ void setup() {
 void loop() {
   uint8_t frame[32];                 // 16*16 Bits / 8 = 32 Bytes
   clearFrame(frame, sizeof(frame));
+
 
   for (uint8_t i = 0; i < SNAKE_LENGTH; ++i) {
     setPixel(frame, snake[i], true);
