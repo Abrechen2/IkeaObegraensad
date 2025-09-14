@@ -15,7 +15,14 @@
 #include "secrets.h"
 
 ESP8266WebServer server(80);
-Effect *currentEffect = &clockEffect;
+uint16_t brightness = 512; // default brightness 0..1023
+
+const uint8_t BUTTON_PIN = D4;
+
+Effect *effects[] = {&snakeEffect, &clockEffect, &rainEffect, &bounceEffect, &starsEffect, &linesEffect};
+const uint8_t effectCount = sizeof(effects) / sizeof(effects[0]);
+uint8_t currentEffectIndex = 1; // start with clock
+Effect *currentEffect = effects[currentEffectIndex];
 String tzString = "CET-1CEST,M3.5.0,M10.5.0/3"; // default Europe/Berlin
 
 void handleRoot() {
@@ -37,15 +44,18 @@ void handleRoot() {
     "<option value='lines'>Lines</option>"
     "</select></div>"
     "<div><label for='tz'>Timezone:</label><input id='tz' size='30'><button id='setTz'>Set</button></div>"
+    "<div><label for='brightness'>Brightness:</label><input id='brightness' type='range' min='0' max='1023'><button id='setBrightness'>Set</button></div>"
     "<script>"
     "async function update(){const r=await fetch('/api/status');const d=await r.json();"
     "document.getElementById('time').textContent=d.time;"
     "document.getElementById('currentEffect').textContent=d.effect;"
     "document.getElementById('effectSelect').value=d.effect;"
-    "document.getElementById('tz').value=d.tz;}"
+    "document.getElementById('tz').value=d.tz;"
+    "document.getElementById('brightness').value=d.brightness;}"
     "setInterval(update,1000);update();"
     "document.getElementById('effectSelect').addEventListener('change',async e=>{await fetch('/effect/'+e.target.value);update();});"
     "document.getElementById('setTz').addEventListener('click',async()=>{const tz=document.getElementById('tz').value;await fetch('/api/setTimezone?tz='+encodeURIComponent(tz));update();});"
+    "document.getElementById('setBrightness').addEventListener('click',async()=>{const b=document.getElementById('brightness').value;await fetch('/api/setBrightness?b='+b);update();});"
     "</script></body></html>";
   server.send(200, "text/html", html);
 }
@@ -59,7 +69,7 @@ void handleStatus() {
   } else {
     strncpy(buf, "--:--:--", sizeof(buf));
   }
-  String json = String("{\"time\":\"") + buf + "\",\"effect\":\"" + currentEffect->name + "\",\"tz\":\"" + tzString + "\"}";
+  String json = String("{\"time\":\"") + buf + "\",\"effect\":\"" + currentEffect->name + "\",\"tz\":\"" + tzString + "\",\"brightness\":" + brightness + "}";
   server.send(200, "application/json", json);
 }
 
@@ -74,22 +84,54 @@ void handleSetTimezone() {
   }
 }
 
-void selectEffect(Effect *e) {
-  currentEffect = e;
+void handleSetBrightness() {
+  if (server.hasArg("b")) {
+    brightness = constrain(server.arg("b").toInt(), 0, 1023);
+    analogWrite(PIN_ENABLE, 1023 - brightness);
+    server.send(200, "application/json", String("{\"brightness\":") + brightness + "}");
+  } else {
+    server.send(400, "text/plain", "Missing b");
+  }
+}
+
+void selectEffect(uint8_t idx) {
+  if (idx >= effectCount) return;
+  currentEffectIndex = idx;
+  currentEffect = effects[currentEffectIndex];
   currentEffect->init();
   server.send(200, "application/json", String("{\"effect\":\"") + currentEffect->name + "\"}");
+}
+
+void nextEffect() {
+  selectEffect((currentEffectIndex + 1) % effectCount);
+}
+
+void startAnimation() {
+  uint8_t frame[32];
+  clearFrame(frame, sizeof(frame));
+  for (int r = 0; r < 8; r++) {
+    for (int x = 7 - r; x <= 8 + r; x++) {
+      setPixel(frame, x, 7 - r, true);
+      setPixel(frame, x, 8 + r, true);
+    }
+    for (int y = 7 - r; y <= 8 + r; y++) {
+      setPixel(frame, 7 - r, y, true);
+      setPixel(frame, 8 + r, y, true);
+    }
+    shiftOutBuffer(frame, sizeof(frame));
+    delay(80);
+  }
+  delay(300);
+  clearFrame(frame, sizeof(frame));
+  shiftOutBuffer(frame, sizeof(frame));
 }
 
 void setup() {
   Serial.begin(115200);
   matrixSetup();
+  pinMode(BUTTON_PIN, INPUT_PULLUP);
 
-uint8_t frame[32];
-  clearFrame(frame, sizeof(frame));
-  setPixel(frame, 0, 0, true);      // first pixel
-  setPixel(frame, 15, 15, true);    // last pixel
-  shiftOutBuffer(frame, sizeof(frame));
-  delay(5000);                      // Anzeige für 5 Sekunden
+  startAnimation();
 
   WiFi.mode(WIFI_STA);
   WiFi.begin(ssid, password);
@@ -104,12 +146,13 @@ uint8_t frame[32];
     server.on("/", handleRoot);
     server.on("/api/status", handleStatus);
     server.on("/api/setTimezone", handleSetTimezone);
-    server.on("/effect/snake", []() { selectEffect(&snakeEffect); });
-    server.on("/effect/clock", []() { selectEffect(&clockEffect); });
-    server.on("/effect/rain", []() { selectEffect(&rainEffect); });
-    server.on("/effect/bounce", []() { selectEffect(&bounceEffect); });
-    server.on("/effect/stars", []() { selectEffect(&starsEffect); });
-    server.on("/effect/lines", []() { selectEffect(&linesEffect); });
+    server.on("/api/setBrightness", handleSetBrightness);
+    server.on("/effect/snake", []() { selectEffect(0); });
+    server.on("/effect/clock", []() { selectEffect(1); });
+    server.on("/effect/rain", []() { selectEffect(2); });
+    server.on("/effect/bounce", []() { selectEffect(3); });
+    server.on("/effect/stars", []() { selectEffect(4); });
+    server.on("/effect/lines", []() { selectEffect(5); });
     server.begin();
 
   currentEffect->init();
@@ -117,6 +160,11 @@ uint8_t frame[32];
 
 void loop() {
   server.handleClient();
+  static unsigned long lastPress = 0;
+  if (digitalRead(BUTTON_PIN) == LOW && millis() - lastPress > 300) {
+    nextEffect();
+    lastPress = millis();
+  }
   uint8_t frame[32];
   clearFrame(frame, sizeof(frame));
   currentEffect->draw(frame);
