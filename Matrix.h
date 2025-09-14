@@ -15,6 +15,7 @@ const uint8_t PIN_DATA   = D7;   // GPIO13, MOSI
 // wrong pixel can be fixed by adjusting a single value in this table.
 // The default table matches the common "serpentine" wiring of 16x16 panels
 // where every even row is reversed.  Modify as needed for different panels.
+
 // gespiegelt mit Mittel‑Trennung (links: 128–255, rechts: 0–127, jeweils serpentin)
 const uint8_t PIXEL_MAP[16][16] = {
     {23, 22, 21, 20, 19, 18, 17, 16, 7, 6, 5, 4, 3, 2, 1, 0},
