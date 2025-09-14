@@ -15,7 +15,7 @@
 #include "secrets.h"
 
 ESP8266WebServer server(80);
-Effect *currentEffect = &snakeEffect;
+Effect *currentEffect = &clockEffect;
 String tzString = "CET-1CEST,M3.5.0,M10.5.0/3"; // default Europe/Berlin
 
 void handleRoot() {
