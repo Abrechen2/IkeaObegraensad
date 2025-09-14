@@ -2,6 +2,7 @@
 #include <ESP8266WiFi.h>
 #include <ESP8266WebServer.h>
 #include <time.h>
+#include <stdlib.h>
 
 #include "Matrix.h"
 #include "Effect.h"
@@ -15,8 +16,41 @@
 
 ESP8266WebServer server(80);
 Effect *currentEffect = &snakeEffect;
+String tzString = "CET-1CEST,M3.5.0,M10.5.0/3"; // default Europe/Berlin
 
 void handleRoot() {
+  String html =
+    "<!DOCTYPE html><html><head><meta charset='UTF-8'><title>Ikea Obegraensad</title>"
+    "<style>body{font-family:sans-serif;text-align:center;background:#111;color:#eee;}"
+    "select,input,button{margin:5px;padding:5px;border-radius:4px;border:1px solid #333;background:#222;color:#eee;}"
+    "button{cursor:pointer;}</style></head><body>"
+    "<h1>Ikea Obegraensad</h1>"
+    "<p>Current time: <span id='time'>--:--:--</span></p>"
+    "<p>Current effect: <span id='currentEffect'></span></p>"
+    "<div><label for='effectSelect'>Effect:</label>"
+    "<select id='effectSelect'>"
+    "<option value='snake'>Snake</option>"
+    "<option value='clock'>Clock</option>"
+    "<option value='rain'>Rain</option>"
+    "<option value='bounce'>Bounce</option>"
+    "<option value='stars'>Stars</option>"
+    "<option value='lines'>Lines</option>"
+    "</select></div>"
+    "<div><label for='tz'>Timezone:</label><input id='tz' size='30'><button id='setTz'>Set</button></div>"
+    "<script>"
+    "async function update(){const r=await fetch('/api/status');const d=await r.json();"
+    "document.getElementById('time').textContent=d.time;"
+    "document.getElementById('currentEffect').textContent=d.effect;"
+    "document.getElementById('effectSelect').value=d.effect;"
+    "document.getElementById('tz').value=d.tz;}"
+    "setInterval(update,1000);update();"
+    "document.getElementById('effectSelect').addEventListener('change',async e=>{await fetch('/effect/'+e.target.value);update();});"
+    "document.getElementById('setTz').addEventListener('click',async()=>{const tz=document.getElementById('tz').value;await fetch('/api/setTimezone?tz='+encodeURIComponent(tz));update();});"
+    "</script></body></html>";
+  server.send(200, "text/html", html);
+}
+
+void handleStatus() {
   time_t now = time(nullptr);
   struct tm *t = localtime(&now);
   char buf[16];
@@ -25,31 +59,25 @@ void handleRoot() {
   } else {
     strncpy(buf, "--:--:--", sizeof(buf));
   }
+  String json = String("{\"time\":\"") + buf + "\",\"effect\":\"" + currentEffect->name + "\",\"tz\":\"" + tzString + "\"}";
+  server.send(200, "application/json", json);
+}
 
-  String html = "<!DOCTYPE html><html><head><meta charset='UTF-8'><title>Ikea Obegraensad</title>";
-  html += "<style>body{font-family:sans-serif;text-align:center;background:#111;color:#eee;}";
-  html += ".btn{display:inline-block;margin:8px;padding:10px 20px;background:#333;color:#eee;text-decoration:none;border-radius:4px;}";
-  html += ".btn:hover{background:#555;}</style></head><body>";
-  html += "<h1>Ikea Obegraensad</h1>";
-  html += "<p>Current time: ";
-  html += buf;
-  html += "</p><p>Current effect: ";
-  html += currentEffect->name;
-  html += "</p><p>Select an effect:</p>";
-  html += "<a class='btn' href='/effect/snake'>Snake</a>";
-  html += "<a class='btn' href='/effect/clock'>Clock</a>";
-  html += "<a class='btn' href='/effect/rain'>Rain</a>";
-  html += "<a class='btn' href='/effect/bounce'>Bounce</a>";
-  html += "<a class='btn' href='/effect/stars'>Stars</a>";
-  html += "<a class='btn' href='/effect/lines'>Lines</a>";
-  html += "</body></html>";
-  server.send(200, "text/html", html);
+void handleSetTimezone() {
+  if (server.hasArg("tz")) {
+    tzString = server.arg("tz");
+    setenv("TZ", tzString.c_str(), 1);
+    tzset();
+    server.send(200, "application/json", String("{\"tz\":\"") + tzString + "\"}" );
+  } else {
+    server.send(400, "text/plain", "Missing tz");
+  }
 }
 
 void selectEffect(Effect *e) {
   currentEffect = e;
   currentEffect->init();
-  server.send(200, "text/plain", String("Selected ") + currentEffect->name);
+  server.send(200, "application/json", String("{\"effect\":\"") + currentEffect->name + "\"}");
 }
 
 void setup() {
@@ -69,16 +97,20 @@ uint8_t frame[32];
     delay(500);
   }
 
-  configTime(0, 0, "pool.ntp.org", "time.nist.gov");
+    configTime(0, 0, "pool.ntp.org", "time.nist.gov");
+    setenv("TZ", tzString.c_str(), 1);
+    tzset();
 
-  server.on("/", handleRoot);
-  server.on("/effect/snake", []() { selectEffect(&snakeEffect); });
-  server.on("/effect/clock", []() { selectEffect(&clockEffect); });
-  server.on("/effect/rain", []() { selectEffect(&rainEffect); });
-  server.on("/effect/bounce", []() { selectEffect(&bounceEffect); });
-  server.on("/effect/stars", []() { selectEffect(&starsEffect); });
-  server.on("/effect/lines", []() { selectEffect(&linesEffect); });
-  server.begin();
+    server.on("/", handleRoot);
+    server.on("/api/status", handleStatus);
+    server.on("/api/setTimezone", handleSetTimezone);
+    server.on("/effect/snake", []() { selectEffect(&snakeEffect); });
+    server.on("/effect/clock", []() { selectEffect(&clockEffect); });
+    server.on("/effect/rain", []() { selectEffect(&rainEffect); });
+    server.on("/effect/bounce", []() { selectEffect(&bounceEffect); });
+    server.on("/effect/stars", []() { selectEffect(&starsEffect); });
+    server.on("/effect/lines", []() { selectEffect(&linesEffect); });
+    server.begin();
 
   currentEffect->init();
 }
