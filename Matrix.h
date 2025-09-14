@@ -39,12 +39,14 @@ const uint8_t PIXEL_MAP[16][16] = {
     {232, 233, 234, 235, 236, 237, 238, 239, 248, 249, 250, 251, 252, 253, 254, 255},
 };
 
+extern uint16_t brightness; // 0..1023
 
 inline void matrixSetup() {
   pinMode(PIN_ENABLE, OUTPUT);
   pinMode(PIN_LATCH,  OUTPUT);
   SPI.begin();
-  digitalWrite(PIN_ENABLE, LOW); // enable LEDs
+  analogWriteRange(1023);
+  analogWrite(PIN_ENABLE, 1023 - brightness); // initial brightness
 }
 
 inline void clearFrame(uint8_t *buffer, size_t size) {
@@ -65,11 +67,11 @@ inline void setPixel(uint8_t *buffer, uint8_t x, uint8_t y, bool on) {
 }
 
 inline void shiftOutBuffer(uint8_t *buffer, size_t size) {
-  digitalWrite(PIN_ENABLE, HIGH);
+  digitalWrite(PIN_ENABLE, HIGH);    // temporarily disable LEDs while shifting
   digitalWrite(PIN_LATCH, LOW);
   SPI.writeBytes(buffer, size);
   digitalWrite(PIN_LATCH, HIGH);
-  digitalWrite(PIN_ENABLE, LOW);
+  analogWrite(PIN_ENABLE, 1023 - brightness); // restore with PWM for brightness control
 }
 
 #endif // MATRIX_H

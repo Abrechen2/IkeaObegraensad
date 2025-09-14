@@ -20,7 +20,9 @@ Connect to the device's WiFi network and open the root page to switch
 effects. The page shows the current time and effect and updates without a
 full page reload. A dropdown allows changing effects instantly and the
 timezone can be adjusted interactively (defaulting to Europe/Berlin with
-automatic daylight saving time).
+automatic daylight saving time). A brightness slider lets you dim the LED
+matrix remotely. A physical button wired to pin D4 cycles through the
+available effects without using the web interface.
 
 To configure WiFi access, copy `secrets_template.h` to `secrets.h` and replace
 the placeholder `ssid` and `password` values with your network credentials
