@@ -8,9 +8,9 @@
 
 namespace ClockEffect {
   void drawDigit(uint8_t *frame, int digit, uint8_t xOffset, uint8_t yOffset) {
-    for (uint8_t y = 0; y < 8; ++y) {
+    for (uint8_t y = 0; y < ClockFont::HEIGHT; ++y) {
       uint8_t row = ClockFont::DIGITS[digit][y];
-      for (uint8_t x = 0; x < 8; ++x) {
+      for (uint8_t x = 0; x < ClockFont::WIDTH; ++x) {
         if (row & (0x80 >> x)) {
           setPixel(frame, x + xOffset, y + yOffset, true);
         }
@@ -28,11 +28,12 @@ namespace ClockEffect {
     int h = t ? t->tm_hour : 0;
     int m = t ? t->tm_min : 0;
     // Render two digits per row: hours on top, minutes on bottom.
-    const uint8_t gap = 8;  // digit width
+    const uint8_t digitWidth = ClockFont::WIDTH;
+    const uint8_t digitHeight = ClockFont::HEIGHT;
     drawDigit(frame, h / 10, 0, 0);
-    drawDigit(frame, h % 10, gap, 0);
-    drawDigit(frame, m / 10, 0, gap);
-    drawDigit(frame, m % 10, gap, gap);
+    drawDigit(frame, h % 10, digitWidth, 0);
+    drawDigit(frame, m / 10, 0, digitHeight);
+    drawDigit(frame, m % 10, digitWidth, digitHeight);
   }
 }
 
