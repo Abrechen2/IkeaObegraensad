@@ -143,6 +143,7 @@ void startAnimation() {
       setPixel(frame, 8 + r, y, true);
     }
     shiftOutBuffer(frame, sizeof(frame));
+    ESP.wdtFeed();
     delay(80);
   }
   delay(300);
@@ -182,6 +183,7 @@ bool setupWiFi() {
     Serial.print(".");
     attempts++;
     yield();
+    ESP.wdtFeed();
   }
 
   wl_status_t status = WiFi.status();
@@ -208,6 +210,7 @@ void setupNTP() {
     Serial.print(".");
     yield();
     attempts++;
+    ESP.wdtFeed();
   }
 
   if (time(nullptr) < 100000) {
@@ -220,7 +223,6 @@ void setupNTP() {
 void setup() {
   Serial.begin(115200);
   Serial.printf("Starting up... Free heap: %d bytes\n", ESP.getFreeHeap());
-  ESP.wdtDisable(); // NUR FÜR DEBUGGING - NICHT IN PRODUKTION!
   system_set_os_print(1); // Debug-Ausgaben aktivieren
 
   matrixSetup();
@@ -309,6 +311,7 @@ void loop() {
 
   yield();
   delay(1);
+  ESP.wdtFeed();
 }
 
 void ICACHE_RAM_ATTR watchdogCallback() {
