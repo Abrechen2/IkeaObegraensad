@@ -97,6 +97,7 @@ void handleSetBrightness() {
   }
 }
 
+
 bool applyEffect(uint8_t idx) {
   if (idx >= effectCount) {
     return false;
@@ -116,6 +117,7 @@ void selectEffect(uint8_t idx) {
     return;
   }
   if (!ok) {
+
     server.send(400, "application/json", "{\"error\":\"invalid effect\"}");
     return;
   }
@@ -124,7 +126,7 @@ void selectEffect(uint8_t idx) {
 
 void nextEffect() {
   applyEffect((currentEffectIndex + 1) % effectCount);
-}
+  }
 
 void startAnimation() {
   uint8_t frame[32];
