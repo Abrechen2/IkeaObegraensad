@@ -1,6 +1,7 @@
 #include <Arduino.h>
 #include <ESP8266WiFi.h>
 #include <ESP8266WebServer.h>
+#include <EEPROM.h>
 #include <time.h>
 #include <stdlib.h>
 extern "C" {
@@ -16,11 +17,18 @@ extern "C" {
 #include "Stars.h"
 #include "Lines.h"
 #include "secrets.h"
+#include "WebInterface.h"
 
 ESP8266WebServer server(80);
 bool serverStarted = false;
 bool ntpConfigured = false;
-uint16_t brightness = 512; // default brightness 0..1023
+const uint16_t DEFAULT_BRIGHTNESS = 512;
+uint16_t brightness = DEFAULT_BRIGHTNESS; // 0..1023
+
+const uint8_t EEPROM_MAGIC = 0xB7;
+const uint16_t EEPROM_SIZE = 8;
+const uint16_t EEPROM_MAGIC_ADDR = 0;
+const uint16_t EEPROM_BRIGHTNESS_ADDR = 1;
 
 const uint8_t BUTTON_PIN = D4;
 
@@ -30,39 +38,24 @@ uint8_t currentEffectIndex = 1; // start with clock
 Effect *currentEffect = effects[currentEffectIndex];
 String tzString = "CET-1CEST,M3.5.0,M10.5.0/3"; // default Europe/Berlin
 
+void loadBrightnessFromStorage() {
+  if (EEPROM.read(EEPROM_MAGIC_ADDR) == EEPROM_MAGIC) {
+    uint16_t stored = DEFAULT_BRIGHTNESS;
+    EEPROM.get(EEPROM_BRIGHTNESS_ADDR, stored);
+    brightness = constrain(stored, 0, 1023);
+  } else {
+    brightness = DEFAULT_BRIGHTNESS;
+  }
+}
+
+void persistBrightnessToStorage() {
+  EEPROM.write(EEPROM_MAGIC_ADDR, EEPROM_MAGIC);
+  EEPROM.put(EEPROM_BRIGHTNESS_ADDR, brightness);
+  EEPROM.commit();
+}
+
 void handleRoot() {
-  String html =
-    "<!DOCTYPE html><html><head><meta charset='UTF-8'><title>Ikea Obegraensad</title>"
-    "<style>body{font-family:sans-serif;text-align:center;background:#111;color:#eee;}"
-    "select,input,button{margin:5px;padding:5px;border-radius:4px;border:1px solid #333;background:#222;color:#eee;}"
-    "button{cursor:pointer;}</style></head><body>"
-    "<h1>Ikea Obegraensad</h1>"
-    "<p>Current time: <span id='time'>--:--:--</span></p>"
-    "<p>Current effect: <span id='currentEffect'></span></p>"
-    "<div><label for='effectSelect'>Effect:</label>"
-    "<select id='effectSelect'>"
-    "<option value='snake'>Snake</option>"
-    "<option value='clock'>Clock</option>"
-    "<option value='rain'>Rain</option>"
-    "<option value='bounce'>Bounce</option>"
-    "<option value='stars'>Stars</option>"
-    "<option value='lines'>Lines</option>"
-    "</select></div>"
-    "<div><label for='tz'>Timezone:</label><input id='tz' size='30'><button id='setTz'>Set</button></div>"
-    "<div><label for='brightness'>Brightness:</label><input id='brightness' type='range' min='0' max='1023'><button id='setBrightness'>Set</button></div>"
-    "<script>"
-    "async function update(){const r=await fetch('/api/status');const d=await r.json();"
-    "document.getElementById('time').textContent=d.time;"
-    "document.getElementById('currentEffect').textContent=d.effect;"
-    "document.getElementById('effectSelect').value=d.effect;"
-    "document.getElementById('tz').value=d.tz;"
-    "document.getElementById('brightness').value=d.brightness;}"
-    "setInterval(update,1000);update();"
-    "document.getElementById('effectSelect').addEventListener('change',async e=>{await fetch('/effect/'+e.target.value);update();});"
-    "document.getElementById('setTz').addEventListener('click',async()=>{const tz=document.getElementById('tz').value;await fetch('/api/setTimezone?tz='+encodeURIComponent(tz));update();});"
-    "document.getElementById('setBrightness').addEventListener('click',async()=>{const b=document.getElementById('brightness').value;await fetch('/api/setBrightness?b='+b);update();});"
-    "</script></body></html>";
-  server.send(200, "text/html", html);
+  server.send_P(200, "text/html", WEB_INTERFACE_HTML);
 }
 
 void handleStatus() {
@@ -74,7 +67,10 @@ void handleStatus() {
   } else {
     strncpy(buf, "--:--:--", sizeof(buf));
   }
-  String json = String("{\"time\":\"") + buf + "\",\"effect\":\"" + currentEffect->name + "\",\"tz\":\"" + tzString + "\",\"brightness\":" + brightness + "}";
+  String json = String("{\"time\":\"") + buf +
+                "\",\"effect\":\"" + currentEffect->name +
+                "\",\"tz\":\"" + tzString +
+                "\",\"brightness\":" + String(brightness) + "}";
   server.send(200, "application/json", json);
 }
 
@@ -93,6 +89,7 @@ void handleSetBrightness() {
   if (server.hasArg("b")) {
     brightness = constrain(server.arg("b").toInt(), 0, 1023);
     analogWrite(PIN_ENABLE, 1023 - brightness);
+    persistBrightnessToStorage();
     server.send(200, "application/json", String("{\"brightness\":") + brightness + "}");
   } else {
     server.send(400, "text/plain", "Missing b");
@@ -224,6 +221,9 @@ void setup() {
   Serial.begin(115200);
   Serial.printf("Starting up... Free heap: %d bytes\n", ESP.getFreeHeap());
   system_set_os_print(1); // Debug-Ausgaben aktivieren
+
+  EEPROM.begin(EEPROM_SIZE);
+  loadBrightnessFromStorage();
 
   matrixSetup();
   pinMode(BUTTON_PIN, INPUT_PULLUP);
