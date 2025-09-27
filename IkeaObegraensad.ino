@@ -19,11 +19,12 @@ extern "C" {
 #include "secrets.h"
 #include "WebInterface.h"
 #include "Pulse.h"
-#include "Waves.h" 
+#include "Waves.h"
 #include "Spiral.h"
 #include "Fire.h"
 #include "Plasma.h"
 #include "Ripple.h"
+#include "SandClock.h"
 
 ESP8266WebServer server(80);
 bool serverStarted = false;
@@ -38,7 +39,21 @@ const uint16_t EEPROM_BRIGHTNESS_ADDR = 1;
 
 const uint8_t BUTTON_PIN = D4;
 
-Effect *effects[] = {&snakeEffect, &clockEffect, &rainEffect, &bounceEffect, &starsEffect, &linesEffect};
+Effect *effects[] = {
+  &snakeEffect,
+  &clockEffect,
+  &rainEffect,
+  &bounceEffect,
+  &starsEffect,
+  &linesEffect,
+  &pulseEffect,
+  &wavesEffect,
+  &spiralEffect,
+  &fireEffect,
+  &plasmaEffect,
+  &rippleEffect,
+  &sandClockEffect
+};
 const uint8_t effectCount = sizeof(effects) / sizeof(effects[0]);
 uint8_t currentEffectIndex = 1; // start with clock
 Effect *currentEffect = effects[currentEffectIndex];
@@ -76,7 +91,8 @@ void handleStatus() {
   String json = String("{\"time\":\"") + buf +
                 "\",\"effect\":\"" + currentEffect->name +
                 "\",\"tz\":\"" + tzString +
-                "\",\"brightness\":" + String(brightness) + "}";
+                "\",\"brightness\":" + String(brightness) +
+                ",\"sandEnabled\":" + (SandClockEffect::sandEffectEnabled ? "true" : "false") + "}";
   server.send(200, "application/json", json);
 }
 
@@ -252,6 +268,19 @@ void setup() {
   server.on("/effect/bounce", []() { selectEffect(3); });
   server.on("/effect/stars", []() { selectEffect(4); });
   server.on("/effect/lines", []() { selectEffect(5); });
+  server.on("/effect/pulse", []() { selectEffect(6); });
+  server.on("/effect/waves", []() { selectEffect(7); });
+  server.on("/effect/spiral", []() { selectEffect(8); });
+  server.on("/effect/fire", []() { selectEffect(9); });
+  server.on("/effect/plasma", []() { selectEffect(10); });
+  server.on("/effect/ripple", []() { selectEffect(11); });
+  server.on("/effect/sandclock", []() { selectEffect(12); });
+  server.on("/api/toggleSand", []() {
+    toggleSandEffect();
+    server.send(200, "application/json",
+                String("{\"sandEnabled\":") +
+                (SandClockEffect::sandEffectEnabled ? "true" : "false") + "}");
+  });
   if (wifiConnected) {
     server.begin();
     serverStarted = true;
