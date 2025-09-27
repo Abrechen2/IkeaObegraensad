@@ -18,6 +18,8 @@ extern "C" {
 #include "secrets.h"
 
 ESP8266WebServer server(80);
+bool serverStarted = false;
+bool ntpConfigured = false;
 uint16_t brightness = 512; // default brightness 0..1023
 
 const uint8_t BUTTON_PIN = D4;
@@ -148,7 +150,28 @@ void startAnimation() {
   shiftOutBuffer(frame, sizeof(frame));
 }
 
-void setupWiFi() {
+const char *wifiStatusToString(uint8_t status) {
+  switch (status) {
+    case WL_IDLE_STATUS:
+      return "IDLE";
+    case WL_NO_SSID_AVAIL:
+      return "NO_SSID_AVAIL";
+    case WL_SCAN_COMPLETED:
+      return "SCAN_COMPLETED";
+    case WL_CONNECTED:
+      return "CONNECTED";
+    case WL_CONNECT_FAILED:
+      return "CONNECT_FAILED";
+    case WL_CONNECTION_LOST:
+      return "CONNECTION_LOST";
+    case WL_DISCONNECTED:
+      return "DISCONNECTED";
+    default:
+      return "UNKNOWN";
+  }
+}
+
+bool setupWiFi() {
   WiFi.mode(WIFI_STA);
   WiFi.begin(ssid, password);
 
@@ -161,13 +184,16 @@ void setupWiFi() {
     yield();
   }
 
-  if (WiFi.status() != WL_CONNECTED) {
-    Serial.println("\nWiFi connection failed! Restarting...");
-    ESP.restart();
+  wl_status_t status = WiFi.status();
+  if (status == WL_CONNECTED) {
+    Serial.printf("\nConnected! IP: %s\n", WiFi.localIP().toString().c_str());
+    Serial.printf("Free heap after WiFi: %d bytes\n", ESP.getFreeHeap());
+    return true;
   }
 
-  Serial.printf("\nConnected! IP: %s\n", WiFi.localIP().toString().c_str());
-  Serial.printf("Free heap after WiFi: %d bytes\n", ESP.getFreeHeap());
+  Serial.printf("\nWiFi connection failed (status: %s). Will keep running and retry in loop.\n",
+                wifiStatusToString(status));
+  return false;
 }
 
 void setupNTP() {
@@ -202,8 +228,11 @@ void setup() {
 
   startAnimation();
 
-  setupWiFi();
-  setupNTP();
+  bool wifiConnected = setupWiFi();
+  ntpConfigured = wifiConnected;
+  if (wifiConnected) {
+    setupNTP();
+  }
 
   server.on("/", handleRoot);
   server.on("/api/status", handleStatus);
@@ -215,7 +244,12 @@ void setup() {
   server.on("/effect/bounce", []() { selectEffect(3); });
   server.on("/effect/stars", []() { selectEffect(4); });
   server.on("/effect/lines", []() { selectEffect(5); });
-  server.begin();
+  if (wifiConnected) {
+    server.begin();
+    serverStarted = true;
+  } else {
+    Serial.println("Web server not started because WiFi is not connected.");
+  }
 
   applyEffect(currentEffectIndex);
 }
@@ -233,8 +267,21 @@ void loop() {
     if (WiFi.status() != WL_CONNECTED) {
       Serial.println("WiFi lost, reconnecting...");
       WiFi.reconnect();
+      serverStarted = false;
+      ntpConfigured = false;
     }
     lastWiFiCheck = millis();
+  }
+
+  if (!serverStarted && WiFi.status() == WL_CONNECTED) {
+    Serial.println("WiFi connected, starting web server...");
+    server.begin();
+    serverStarted = true;
+  }
+
+  if (!ntpConfigured && WiFi.status() == WL_CONNECTED) {
+    setupNTP();
+    ntpConfigured = true;
   }
 
   if (millis() - lastButtonCheck > 50) {
