@@ -18,6 +18,12 @@ extern "C" {
 #include "Lines.h"
 #include "secrets.h"
 #include "WebInterface.h"
+#include "Pulse.h"
+#include "Waves.h" 
+#include "Spiral.h"
+#include "Fire.h"
+#include "Plasma.h"
+#include "Ripple.h"
 
 ESP8266WebServer server(80);
 bool serverStarted = false;
