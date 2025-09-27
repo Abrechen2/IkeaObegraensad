@@ -97,16 +97,33 @@ void handleSetBrightness() {
   }
 }
 
-void selectEffect(uint8_t idx) {
-  if (idx >= effectCount) return;
+bool applyEffect(uint8_t idx) {
+  if (idx >= effectCount) {
+    return false;
+  }
   currentEffectIndex = idx;
   currentEffect = effects[currentEffectIndex];
   currentEffect->init();
+  yield();
+  return true;
+}
+
+void selectEffect(uint8_t idx) {
+  bool ok = applyEffect(idx);
+  WiFiClient client = server.client();
+  if (!client || !client.connected()) {
+    Serial.printf("selectEffect(%u) called without active HTTP client (ok=%d)\n", idx, ok);
+    return;
+  }
+  if (!ok) {
+    server.send(400, "application/json", "{\"error\":\"invalid effect\"}");
+    return;
+  }
   server.send(200, "application/json", String("{\"effect\":\"") + currentEffect->name + "\"}");
 }
 
 void nextEffect() {
-  selectEffect((currentEffectIndex + 1) % effectCount);
+  applyEffect((currentEffectIndex + 1) % effectCount);
 }
 
 void startAnimation() {
@@ -198,7 +215,7 @@ void setup() {
   server.on("/effect/lines", []() { selectEffect(5); });
   server.begin();
 
-  currentEffect->init();
+  applyEffect(currentEffectIndex);
 }
 
 void loop() {
