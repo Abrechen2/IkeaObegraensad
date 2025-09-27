@@ -97,16 +97,26 @@ void handleSetBrightness() {
   }
 }
 
-void selectEffect(uint8_t idx) {
-  if (idx >= effectCount) return;
+bool setEffect(uint8_t idx) {
+  if (idx >= effectCount) {
+    return false;
+  }
   currentEffectIndex = idx;
   currentEffect = effects[currentEffectIndex];
   currentEffect->init();
+  return true;
+}
+
+void selectEffect(uint8_t idx) {
+  if (!setEffect(idx)) {
+    server.send(400, "application/json", "{\"error\":\"invalid effect\"}");
+    return;
+  }
   server.send(200, "application/json", String("{\"effect\":\"") + currentEffect->name + "\"}");
 }
 
 void nextEffect() {
-  selectEffect((currentEffectIndex + 1) % effectCount);
+  setEffect((currentEffectIndex + 1) % effectCount);
 }
 
 void startAnimation() {
