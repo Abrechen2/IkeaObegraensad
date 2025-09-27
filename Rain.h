@@ -1,6 +1,8 @@
 #ifndef EFFECT_RAIN_H
 #define EFFECT_RAIN_H
 
+#include <cstring>
+
 #include "Effect.h"
 #include "Matrix.h"
 
@@ -15,11 +17,15 @@ namespace RainEffect {
 inline RainEffect::Drop RainEffect::drops[RainEffect::MAX_DROPS];
 
 inline void RainEffect::init() {
+  memset(drops, 0, sizeof(drops));
+
   randomSeed(micros());
   for (uint8_t i = 0; i < MAX_DROPS; ++i) {
     drops[i].x = random(0, 16);
     drops[i].y = random(-16, 16);
   }
+
+  Serial.printf("Rain effect initialized. Free heap: %d\n", ESP.getFreeHeap());
 }
 
 inline void RainEffect::draw(uint8_t *frame) {

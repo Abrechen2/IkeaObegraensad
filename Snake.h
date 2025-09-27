@@ -1,6 +1,8 @@
 #ifndef EFFECT_SNAKE_H
 #define EFFECT_SNAKE_H
 
+#include <cstring>
+
 #include "Effect.h"
 #include "Matrix.h"
 
@@ -14,9 +16,13 @@ namespace SnakeEffect {
 inline uint16_t SnakeEffect::body[SnakeEffect::LENGTH];
 
 inline void SnakeEffect::init() {
+  memset(body, 0, sizeof(body));
+
   for (uint8_t i = 0; i < LENGTH; ++i) {
     body[i] = i;
   }
+
+  Serial.printf("Snake effect initialized. Free heap: %d\n", ESP.getFreeHeap());
 }
 
 inline void SnakeEffect::draw(uint8_t *frame) {

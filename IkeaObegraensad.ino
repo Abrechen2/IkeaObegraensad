@@ -3,6 +3,9 @@
 #include <ESP8266WebServer.h>
 #include <time.h>
 #include <stdlib.h>
+extern "C" {
+#include <user_interface.h>
+}
 
 #include "Matrix.h"
 #include "Effect.h"
@@ -126,48 +129,122 @@ void startAnimation() {
   shiftOutBuffer(frame, sizeof(frame));
 }
 
+void setupWiFi() {
+  WiFi.mode(WIFI_STA);
+  WiFi.begin(ssid, password);
+
+  Serial.print("Connecting to WiFi");
+  int attempts = 0;
+  while (WiFi.status() != WL_CONNECTED && attempts < 30) {
+    delay(500);
+    Serial.print(".");
+    attempts++;
+    yield();
+  }
+
+  if (WiFi.status() != WL_CONNECTED) {
+    Serial.println("\nWiFi connection failed! Restarting...");
+    ESP.restart();
+  }
+
+  Serial.printf("\nConnected! IP: %s\n", WiFi.localIP().toString().c_str());
+  Serial.printf("Free heap after WiFi: %d bytes\n", ESP.getFreeHeap());
+}
+
+void setupNTP() {
+  configTime(0, 0, "pool.ntp.org", "time.nist.gov");
+  setenv("TZ", tzString.c_str(), 1);
+  tzset();
+
+  Serial.print("Waiting for NTP sync");
+  int attempts = 0;
+  while (time(nullptr) < 100000 && attempts < 20) {
+    delay(500);
+    Serial.print(".");
+    yield();
+    attempts++;
+  }
+
+  if (time(nullptr) < 100000) {
+    Serial.println("\nNTP sync failed, continuing anyway...");
+  } else {
+    Serial.println("\nNTP sync successful!");
+  }
+}
+
 void setup() {
   Serial.begin(115200);
+  Serial.printf("Starting up... Free heap: %d bytes\n", ESP.getFreeHeap());
+  ESP.wdtDisable(); // NUR FÜR DEBUGGING - NICHT IN PRODUKTION!
+  system_set_os_print(1); // Debug-Ausgaben aktivieren
+
   matrixSetup();
   pinMode(BUTTON_PIN, INPUT_PULLUP);
 
   startAnimation();
 
-  WiFi.mode(WIFI_STA);
-  WiFi.begin(ssid, password);
-  while (WiFi.status() != WL_CONNECTED) {
-    delay(500);
-  }
+  setupWiFi();
+  setupNTP();
 
-    configTime(0, 0, "pool.ntp.org", "time.nist.gov");
-    setenv("TZ", tzString.c_str(), 1);
-    tzset();
-
-    server.on("/", handleRoot);
-    server.on("/api/status", handleStatus);
-    server.on("/api/setTimezone", handleSetTimezone);
-    server.on("/api/setBrightness", handleSetBrightness);
-    server.on("/effect/snake", []() { selectEffect(0); });
-    server.on("/effect/clock", []() { selectEffect(1); });
-    server.on("/effect/rain", []() { selectEffect(2); });
-    server.on("/effect/bounce", []() { selectEffect(3); });
-    server.on("/effect/stars", []() { selectEffect(4); });
-    server.on("/effect/lines", []() { selectEffect(5); });
-    server.begin();
+  server.on("/", handleRoot);
+  server.on("/api/status", handleStatus);
+  server.on("/api/setTimezone", handleSetTimezone);
+  server.on("/api/setBrightness", handleSetBrightness);
+  server.on("/effect/snake", []() { selectEffect(0); });
+  server.on("/effect/clock", []() { selectEffect(1); });
+  server.on("/effect/rain", []() { selectEffect(2); });
+  server.on("/effect/bounce", []() { selectEffect(3); });
+  server.on("/effect/stars", []() { selectEffect(4); });
+  server.on("/effect/lines", []() { selectEffect(5); });
+  server.begin();
 
   currentEffect->init();
 }
 
 void loop() {
+  static unsigned long lastFrameUpdate = 0;
+  static unsigned long lastButtonCheck = 0;
+  static unsigned long lastWiFiCheck = 0;
+  static unsigned long lastStatusPrint = 0;
+
   server.handleClient();
-  static unsigned long lastPress = 0;
-  if (digitalRead(BUTTON_PIN) == LOW && millis() - lastPress > 300) {
-    nextEffect();
-    lastPress = millis();
+  yield();
+
+  if (millis() - lastWiFiCheck > 30000) {
+    if (WiFi.status() != WL_CONNECTED) {
+      Serial.println("WiFi lost, reconnecting...");
+      WiFi.reconnect();
+    }
+    lastWiFiCheck = millis();
   }
-  uint8_t frame[32];
-  clearFrame(frame, sizeof(frame));
-  currentEffect->draw(frame);
-  shiftOutBuffer(frame, sizeof(frame));
-  delay(50);
+
+  if (millis() - lastButtonCheck > 50) {
+    static unsigned long lastPress = 0;
+    if (digitalRead(BUTTON_PIN) == LOW && millis() - lastPress > 300) {
+      nextEffect();
+      lastPress = millis();
+    }
+    lastButtonCheck = millis();
+  }
+
+  if (millis() - lastFrameUpdate > 50) {
+    uint8_t frame[32];
+    clearFrame(frame, sizeof(frame));
+    currentEffect->draw(frame);
+    shiftOutBuffer(frame, sizeof(frame));
+    lastFrameUpdate = millis();
+  }
+
+  if (millis() - lastStatusPrint > 60000) {
+    Serial.printf("Uptime: %lus, Free heap: %d bytes\n",
+                  millis() / 1000, ESP.getFreeHeap());
+    lastStatusPrint = millis();
+  }
+
+  yield();
+  delay(1);
+}
+
+void ICACHE_RAM_ATTR watchdogCallback() {
+  Serial.println("WATCHDOG TRIGGERED!");
 }
