@@ -234,7 +234,15 @@ const char WEB_INTERFACE_HTML[] PROGMEM = R"rawl(
             <option value="bounce">Bounce</option>
             <option value="stars">Stars</option>
             <option value="lines">Lines</option>
+            <option value="pulse">Pulse</option>
+            <option value="waves">Waves</option>
+            <option value="spiral">Spiral</option>
+            <option value="fire">Fire</option>
+            <option value="plasma">Plasma</option>
+            <option value="ripple">Ripple</option>
+            <option value="sandclock">Sand Clock</option>
           </select>
+          <button id="toggleSand" type="button">Sand-Effekt: <span id="sandStatus">An</span></button>
         </div>
         <div>
           <label for="tz">Zeitzone (POSIX)</label>
@@ -271,8 +279,26 @@ const char WEB_INTERFACE_HTML[] PROGMEM = R"rawl(
     const brightnessValue = document.getElementById('brightnessValue');
     const saveBrightnessButton = document.getElementById('saveBrightness');
     const statusMessage = document.getElementById('statusMessage');
+    const toggleSandButton = document.getElementById('toggleSand');
+    const sandStatus = document.getElementById('sandStatus');
 
     let brightnessDebounce;
+
+    const effectLabels = {
+      snake: 'Snake',
+      clock: 'Clock',
+      rain: 'Rain',
+      bounce: 'Bounce',
+      stars: 'Stars',
+      lines: 'Lines',
+      pulse: 'Pulse',
+      waves: 'Waves',
+      spiral: 'Spiral',
+      fire: 'Fire',
+      plasma: 'Plasma',
+      ripple: 'Ripple',
+      sandclock: 'Sand Clock'
+    };
 
     function showStatus(message, type = 'info') {
       statusMessage.textContent = message;
@@ -280,7 +306,7 @@ const char WEB_INTERFACE_HTML[] PROGMEM = R"rawl(
     }
 
     function prettifyEffect(effect) {
-      return effect.charAt(0).toUpperCase() + effect.slice(1);
+      return effectLabels[effect] || (effect.charAt(0).toUpperCase() + effect.slice(1));
     }
 
     function updateBrightnessUI(value) {
@@ -307,10 +333,26 @@ const char WEB_INTERFACE_HTML[] PROGMEM = R"rawl(
           tzInput.value = data.tz || '';
         }
         updateBrightnessUI(data.brightness);
-        effectSelect.value = data.effect;
+        if ([...effectSelect.options].some(option => option.value === data.effect)) {
+          effectSelect.value = data.effect;
+        }
+        if (data.sandEnabled !== undefined) {
+          sandStatus.textContent = data.sandEnabled ? 'An' : 'Aus';
+        }
         showStatus('');
       } catch (error) {
         showStatus('Status konnte nicht geladen werden. ' + error.message, 'error');
+      }
+    }
+
+    async function toggleSandEffect() {
+      try {
+        const response = await fetch('/api/toggleSand');
+        const data = await response.json();
+        sandStatus.textContent = data.sandEnabled ? 'An' : 'Aus';
+        showStatus('Sand-Effekt ' + (data.sandEnabled ? 'aktiviert' : 'deaktiviert'));
+      } catch (error) {
+        showStatus('Fehler beim Umschalten', 'error');
       }
     }
 
@@ -366,6 +408,8 @@ const char WEB_INTERFACE_HTML[] PROGMEM = R"rawl(
     saveBrightnessButton.addEventListener('click', () => {
       saveBrightness(brightnessSlider.value);
     });
+
+    toggleSandButton.addEventListener('click', toggleSandEffect);
 
     refreshStatus();
     setInterval(refreshStatus, 2000);
