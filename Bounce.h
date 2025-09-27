@@ -1,6 +1,8 @@
 #ifndef EFFECT_BOUNCE_H
 #define EFFECT_BOUNCE_H
 
+#include <cstring>
+
 #include "Effect.h"
 #include "Matrix.h"
 
@@ -17,10 +19,17 @@ inline int8_t BounceEffect::dx;
 inline int8_t BounceEffect::dy;
 
 inline void BounceEffect::init() {
+  memset(&x, 0, sizeof(x));
+  memset(&y, 0, sizeof(y));
+  memset(&dx, 0, sizeof(dx));
+  memset(&dy, 0, sizeof(dy));
+
   x = 0;
   y = 0;
   dx = 1;
   dy = 1;
+
+  Serial.printf("Bounce effect initialized. Free heap: %d\n", ESP.getFreeHeap());
 }
 
 inline void BounceEffect::draw(uint8_t *frame) {

@@ -1,6 +1,8 @@
 #ifndef EFFECT_STARS_H
 #define EFFECT_STARS_H
 
+#include <cstring>
+
 #include "Effect.h"
 #include "Matrix.h"
 
@@ -15,6 +17,8 @@ namespace StarsEffect {
 inline StarsEffect::Star StarsEffect::stars[StarsEffect::MAX_STARS];
 
 inline void StarsEffect::init() {
+  memset(stars, 0, sizeof(stars));
+
   randomSeed(micros());
   for (uint8_t i = 0; i < MAX_STARS; ++i) {
     stars[i].x = random(0,16);
@@ -22,6 +26,8 @@ inline void StarsEffect::init() {
     stars[i].life = random(5,20);
     stars[i].on = random(0,2);
   }
+
+  Serial.printf("Stars effect initialized. Free heap: %d\n", ESP.getFreeHeap());
 }
 
 inline void StarsEffect::draw(uint8_t *frame) {
