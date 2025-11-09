@@ -36,8 +36,8 @@ uint16_t brightness = DEFAULT_BRIGHTNESS; // 0..1023
 bool autoBrightnessEnabled = false;
 uint16_t minBrightness = 100;   // Minimale Helligkeit (0-1023)
 uint16_t maxBrightness = 1023;  // Maximale Helligkeit (0-1023)
-uint16_t sensorMin = 0;         // Minimaler Sensorwert (dunkel)
-uint16_t sensorMax = 1023;      // Maximaler Sensorwert (hell)
+uint16_t sensorMin = 5;         // Minimaler Sensorwert (dunkel) - LDR-spezifisch
+uint16_t sensorMax = 450;       // Maximaler Sensorwert (hell) - LDR-spezifisch
 const uint8_t LIGHT_SENSOR_PIN = A0; // Analoger Pin für Phototransistor
 
 // Auto-Brightness Konstanten
@@ -109,8 +109,8 @@ void loadBrightnessFromStorage() {
     autoBrightnessEnabled = false;
     minBrightness = 100;
     maxBrightness = 1023;
-    sensorMin = 0;
-    sensorMax = 1023;
+    sensorMin = 5;
+    sensorMax = 450;
   }
 }
 
