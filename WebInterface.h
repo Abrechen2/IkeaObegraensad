@@ -221,6 +221,10 @@ const char WEB_INTERFACE_HTML[] PROGMEM = R"rawl(
         <div>Helligkeit <span id="currentBrightness">0</span></div>
         <div>Zeitzone <span id="currentTimezone">-</span></div>
       </div>
+      <div class="status-row">
+        <div>Lichtsensor <span id="sensorValue">0</span></div>
+        <div>Auto-Helligkeit <span id="autoStatus">Aus</span></div>
+      </div>
     </section>
 
     <div class="grid">
@@ -245,15 +249,29 @@ const char WEB_INTERFACE_HTML[] PROGMEM = R"rawl(
           <button id="toggleSand" type="button">Sand-Effekt: <span id="sandStatus">An</span></button>
         </div>
         <div>
-          <label for="tz">Zeitzone (POSIX)</label>
-          <input id="tz" type="text" inputmode="text" autocomplete="off" spellcheck="false" placeholder="z. B. CET-1CEST,M3.5.0,M10.5.0/3">
+          <label for="tz">Zeitzone</label>
+          <select id="tz">
+            <option value="CET-1CEST,M3.5.0,M10.5.0/3">Europa/Berlin (CET)</option>
+            <option value="GMT0BST,M3.5.0/1,M10.5.0">Europa/London (GMT/BST)</option>
+            <option value="WET0WEST,M3.5.0/1,M10.5.0">Europa/Lissabon (WET/WEST)</option>
+            <option value="EET-2EEST,M3.5.0/3,M10.5.0/4">Europa/Helsinki (EET)</option>
+            <option value="EST5EDT,M3.2.0,M11.1.0">Amerika/New York (EST)</option>
+            <option value="CST6CDT,M3.2.0,M11.1.0">Amerika/Chicago (CST)</option>
+            <option value="MST7MDT,M3.2.0,M11.1.0">Amerika/Denver (MST)</option>
+            <option value="PST8PDT,M3.2.0,M11.1.0">Amerika/Los Angeles (PST)</option>
+            <option value="AEST-10AEDT,M10.1.0,M4.1.0/3">Australien/Sydney (AEST)</option>
+            <option value="JST-9">Asien/Tokio (JST)</option>
+            <option value="CST-8">Asien/Shanghai (CST)</option>
+            <option value="IST-5:30">Asien/Indien (IST)</option>
+            <option value="UTC0">UTC</option>
+          </select>
           <button id="setTz">Zeitzone aktualisieren</button>
         </div>
       </section>
 
       <section class="card">
         <div class="range-wrapper">
-          <label for="brightness">Helligkeit</label>
+          <label for="brightness">Helligkeit (Manuell)</label>
           <input id="brightness" type="range" min="0" max="1023" step="1">
           <div class="range-value" id="brightnessValue">0</div>
         </div>
@@ -261,6 +279,37 @@ const char WEB_INTERFACE_HTML[] PROGMEM = R"rawl(
         <div id="statusMessage"></div>
       </section>
     </div>
+
+    <section class="card">
+      <h3 style="margin: 0 0 1rem 0; font-size: 1.2rem;">Automatische Helligkeit</h3>
+      <label style="display: flex; align-items: center; gap: 0.5rem; cursor: pointer;">
+        <input type="checkbox" id="autoEnabled" style="width: auto; cursor: pointer;">
+        <span>Auto-Helligkeit aktivieren</span>
+      </label>
+      <div class="grid" style="margin-top: 1rem;">
+        <div class="range-wrapper">
+          <label for="minBrightness">Min. Helligkeit</label>
+          <input id="minBrightness" type="range" min="0" max="1023" step="1">
+          <div class="range-value" id="minBrightnessValue">0</div>
+        </div>
+        <div class="range-wrapper">
+          <label for="maxBrightness">Max. Helligkeit</label>
+          <input id="maxBrightness" type="range" min="0" max="1023" step="1">
+          <div class="range-value" id="maxBrightnessValue">0</div>
+        </div>
+        <div class="range-wrapper">
+          <label for="sensorMin">Sensor Min. (dunkel)</label>
+          <input id="sensorMin" type="range" min="0" max="1023" step="1">
+          <div class="range-value" id="sensorMinValue">0</div>
+        </div>
+        <div class="range-wrapper">
+          <label for="sensorMax">Sensor Max. (hell)</label>
+          <input id="sensorMax" type="range" min="0" max="1023" step="1">
+          <div class="range-value" id="sensorMaxValue">0</div>
+        </div>
+      </div>
+      <button id="saveAuto">Auto-Brightness speichern</button>
+    </section>
 
     <footer>
       <span>Statusaktualisierung alle 2&nbsp;Sekunden</span>
@@ -273,7 +322,9 @@ const char WEB_INTERFACE_HTML[] PROGMEM = R"rawl(
     const currentEffectEl = document.getElementById('currentEffect');
     const currentBrightnessEl = document.getElementById('currentBrightness');
     const currentTimezoneEl = document.getElementById('currentTimezone');
-    const tzInput = document.getElementById('tz');
+    const sensorValueEl = document.getElementById('sensorValue');
+    const autoStatusEl = document.getElementById('autoStatus');
+    const tzSelect = document.getElementById('tz');
     const setTzButton = document.getElementById('setTz');
     const brightnessSlider = document.getElementById('brightness');
     const brightnessValue = document.getElementById('brightnessValue');
@@ -281,6 +332,18 @@ const char WEB_INTERFACE_HTML[] PROGMEM = R"rawl(
     const statusMessage = document.getElementById('statusMessage');
     const toggleSandButton = document.getElementById('toggleSand');
     const sandStatus = document.getElementById('sandStatus');
+
+    // Auto-Brightness Elemente
+    const autoEnabled = document.getElementById('autoEnabled');
+    const minBrightnessSlider = document.getElementById('minBrightness');
+    const maxBrightnessSlider = document.getElementById('maxBrightness');
+    const sensorMinSlider = document.getElementById('sensorMin');
+    const sensorMaxSlider = document.getElementById('sensorMax');
+    const minBrightnessValue = document.getElementById('minBrightnessValue');
+    const maxBrightnessValue = document.getElementById('maxBrightnessValue');
+    const sensorMinValue = document.getElementById('sensorMinValue');
+    const sensorMaxValue = document.getElementById('sensorMaxValue');
+    const saveAutoButton = document.getElementById('saveAuto');
 
     let brightnessDebounce;
 
@@ -329,9 +392,12 @@ const char WEB_INTERFACE_HTML[] PROGMEM = R"rawl(
         timeEl.textContent = data.time;
         currentEffectEl.textContent = prettifyEffect(data.effect);
         currentTimezoneEl.textContent = data.tz || '-';
-        if (document.activeElement !== tzInput) {
-          tzInput.value = data.tz || '';
+
+        // Timezone Select aktualisieren
+        if (document.activeElement !== tzSelect) {
+          tzSelect.value = data.tz || 'CET-1CEST,M3.5.0,M10.5.0/3';
         }
+
         updateBrightnessUI(data.brightness);
         if ([...effectSelect.options].some(option => option.value === data.effect)) {
           effectSelect.value = data.effect;
@@ -339,6 +405,32 @@ const char WEB_INTERFACE_HTML[] PROGMEM = R"rawl(
         if (data.sandEnabled !== undefined) {
           sandStatus.textContent = data.sandEnabled ? 'An' : 'Aus';
         }
+
+        // Auto-Brightness Status
+        if (data.sensorValue !== undefined) {
+          sensorValueEl.textContent = data.sensorValue;
+        }
+        if (data.autoBrightness !== undefined) {
+          autoStatusEl.textContent = data.autoBrightness ? 'An' : 'Aus';
+          autoEnabled.checked = data.autoBrightness;
+        }
+        if (data.minBrightness !== undefined) {
+          minBrightnessSlider.value = data.minBrightness;
+          minBrightnessValue.textContent = data.minBrightness;
+        }
+        if (data.maxBrightness !== undefined) {
+          maxBrightnessSlider.value = data.maxBrightness;
+          maxBrightnessValue.textContent = data.maxBrightness;
+        }
+        if (data.sensorMin !== undefined) {
+          sensorMinSlider.value = data.sensorMin;
+          sensorMinValue.textContent = data.sensorMin;
+        }
+        if (data.sensorMax !== undefined) {
+          sensorMaxSlider.value = data.sensorMax;
+          sensorMaxValue.textContent = data.sensorMax;
+        }
+
         showStatus('');
       } catch (error) {
         showStatus('Status konnte nicht geladen werden. ' + error.message, 'error');
@@ -367,9 +459,9 @@ const char WEB_INTERFACE_HTML[] PROGMEM = R"rawl(
     }
 
     async function updateTimezone() {
-      const tz = tzInput.value.trim();
+      const tz = tzSelect.value.trim();
       if (!tz) {
-        showStatus('Bitte eine gültige Zeitzone eintragen.', 'error');
+        showStatus('Bitte eine gültige Zeitzone auswählen.', 'error');
         return;
       }
       try {
@@ -378,6 +470,22 @@ const char WEB_INTERFACE_HTML[] PROGMEM = R"rawl(
         showStatus('Zeitzone gespeichert.');
       } catch (error) {
         showStatus('Zeitzone konnte nicht gespeichert werden.', 'error');
+      }
+    }
+
+    async function saveAutoBrightness() {
+      try {
+        const params = new URLSearchParams({
+          enabled: autoEnabled.checked ? 'true' : 'false',
+          min: minBrightnessSlider.value,
+          max: maxBrightnessSlider.value,
+          sensorMin: sensorMinSlider.value,
+          sensorMax: sensorMaxSlider.value
+        });
+        await fetch('/api/setAutoBrightness?' + params.toString());
+        showStatus('Auto-Brightness Einstellungen gespeichert.');
+      } catch (error) {
+        showStatus('Auto-Brightness konnte nicht gespeichert werden.', 'error');
       }
     }
 
@@ -410,6 +518,31 @@ const char WEB_INTERFACE_HTML[] PROGMEM = R"rawl(
     });
 
     toggleSandButton.addEventListener('click', toggleSandEffect);
+
+    // Auto-Brightness Event Listener
+    minBrightnessSlider.addEventListener('input', event => {
+      minBrightnessValue.textContent = event.target.value;
+    });
+
+    maxBrightnessSlider.addEventListener('input', event => {
+      maxBrightnessValue.textContent = event.target.value;
+    });
+
+    sensorMinSlider.addEventListener('input', event => {
+      sensorMinValue.textContent = event.target.value;
+    });
+
+    sensorMaxSlider.addEventListener('input', event => {
+      sensorMaxValue.textContent = event.target.value;
+    });
+
+    saveAutoButton.addEventListener('click', () => {
+      saveAutoBrightness();
+    });
+
+    autoEnabled.addEventListener('change', () => {
+      saveAutoBrightness();
+    });
 
     refreshStatus();
     setInterval(refreshStatus, 2000);

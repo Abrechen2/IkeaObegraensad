@@ -32,10 +32,29 @@ bool ntpConfigured = false;
 const uint16_t DEFAULT_BRIGHTNESS = 512;
 uint16_t brightness = DEFAULT_BRIGHTNESS; // 0..1023
 
+// Auto-Brightness Konfiguration
+bool autoBrightnessEnabled = false;
+uint16_t minBrightness = 100;   // Minimale Helligkeit (0-1023)
+uint16_t maxBrightness = 1023;  // Maximale Helligkeit (0-1023)
+uint16_t sensorMin = 0;         // Minimaler Sensorwert (dunkel)
+uint16_t sensorMax = 1023;      // Maximaler Sensorwert (hell)
+const uint8_t LIGHT_SENSOR_PIN = A0; // Analoger Pin für Phototransistor
+
+// Auto-Brightness Konstanten
+const uint8_t LIGHT_SENSOR_SAMPLES = 5;     // Anzahl der Sensor-Messungen für Mittelwertbildung
+const uint8_t LIGHT_SENSOR_SAMPLE_DELAY = 10; // ms zwischen Sensor-Messungen
+const uint16_t BRIGHTNESS_CHANGE_THRESHOLD = 50; // Minimale Änderung (~5%) bevor Update erfolgt
+const unsigned long AUTO_BRIGHTNESS_UPDATE_INTERVAL = 1000; // ms zwischen Auto-Brightness Updates
+
 const uint8_t EEPROM_MAGIC = 0xB7;
-const uint16_t EEPROM_SIZE = 8;
+const uint16_t EEPROM_SIZE = 16; // Erweitert von 8 auf 16 Bytes
 const uint16_t EEPROM_MAGIC_ADDR = 0;
 const uint16_t EEPROM_BRIGHTNESS_ADDR = 1;
+const uint16_t EEPROM_AUTO_BRIGHTNESS_ADDR = 3;    // bool (1 byte)
+const uint16_t EEPROM_MIN_BRIGHTNESS_ADDR = 4;     // uint16_t (2 bytes)
+const uint16_t EEPROM_MAX_BRIGHTNESS_ADDR = 6;     // uint16_t (2 bytes)
+const uint16_t EEPROM_SENSOR_MIN_ADDR = 8;         // uint16_t (2 bytes)
+const uint16_t EEPROM_SENSOR_MAX_ADDR = 10;        // uint16_t (2 bytes)
 
 const uint8_t BUTTON_PIN = D4;
 
@@ -57,22 +76,90 @@ Effect *effects[] = {
 const uint8_t effectCount = sizeof(effects) / sizeof(effects[0]);
 uint8_t currentEffectIndex = 1; // start with clock
 Effect *currentEffect = effects[currentEffectIndex];
-String tzString = "CET-1CEST,M3.5.0,M10.5.0/3"; // default Europe/Berlin
+// POSIX TZ String mit automatischer Sommer-/Winterzeit-Umstellung (DST)
+// Format: STD offset DST offset,start/time,end/time
+// Beispiel: CET-1CEST,M3.5.0,M10.5.0/3
+//   - CET = Central European Time (Standardzeit)
+//   - -1 = UTC+1 (Offset zur UTC)
+//   - CEST = Central European Summer Time (Sommerzeit)
+//   - M3.5.0 = März (M3), 5. Woche, Sonntag (0) = letzter Sonntag im März um 02:00 UTC
+//   - M10.5.0/3 = Oktober (M10), 5. Woche, Sonntag, um 03:00 UTC = letzter Sonntag im Oktober
+String tzString = "CET-1CEST,M3.5.0,M10.5.0/3"; // default Europe/Berlin mit DST
 
 void loadBrightnessFromStorage() {
   if (EEPROM.read(EEPROM_MAGIC_ADDR) == EEPROM_MAGIC) {
     uint16_t stored = DEFAULT_BRIGHTNESS;
     EEPROM.get(EEPROM_BRIGHTNESS_ADDR, stored);
     brightness = constrain(stored, 0, 1023);
+
+    // Auto-Brightness-Einstellungen laden
+    autoBrightnessEnabled = EEPROM.read(EEPROM_AUTO_BRIGHTNESS_ADDR) == 1;
+    EEPROM.get(EEPROM_MIN_BRIGHTNESS_ADDR, minBrightness);
+    EEPROM.get(EEPROM_MAX_BRIGHTNESS_ADDR, maxBrightness);
+    EEPROM.get(EEPROM_SENSOR_MIN_ADDR, sensorMin);
+    EEPROM.get(EEPROM_SENSOR_MAX_ADDR, sensorMax);
+
+    // Werte validieren
+    minBrightness = constrain(minBrightness, 0, 1023);
+    maxBrightness = constrain(maxBrightness, 0, 1023);
+    sensorMin = constrain(sensorMin, 0, 1023);
+    sensorMax = constrain(sensorMax, 0, 1023);
   } else {
     brightness = DEFAULT_BRIGHTNESS;
+    autoBrightnessEnabled = false;
+    minBrightness = 100;
+    maxBrightness = 1023;
+    sensorMin = 0;
+    sensorMax = 1023;
   }
 }
 
 void persistBrightnessToStorage() {
   EEPROM.write(EEPROM_MAGIC_ADDR, EEPROM_MAGIC);
   EEPROM.put(EEPROM_BRIGHTNESS_ADDR, brightness);
+  EEPROM.write(EEPROM_AUTO_BRIGHTNESS_ADDR, autoBrightnessEnabled ? 1 : 0);
+  EEPROM.put(EEPROM_MIN_BRIGHTNESS_ADDR, minBrightness);
+  EEPROM.put(EEPROM_MAX_BRIGHTNESS_ADDR, maxBrightness);
+  EEPROM.put(EEPROM_SENSOR_MIN_ADDR, sensorMin);
+  EEPROM.put(EEPROM_SENSOR_MAX_ADDR, sensorMax);
   EEPROM.commit();
+}
+
+// Auto-Brightness: Sensor auslesen und Helligkeit anpassen
+uint16_t readLightSensor() {
+  // Mehrere Messungen für stabilere Werte (Mittelwertbildung reduziert Rauschen)
+  uint32_t sum = 0;
+  for (uint8_t i = 0; i < LIGHT_SENSOR_SAMPLES; i++) {
+    sum += analogRead(LIGHT_SENSOR_PIN);
+    delay(LIGHT_SENSOR_SAMPLE_DELAY);
+  }
+  return sum / LIGHT_SENSOR_SAMPLES;
+}
+
+void updateAutoBrightness() {
+  if (!autoBrightnessEnabled) {
+    return;
+  }
+
+  uint16_t sensorValue = readLightSensor();
+
+  // Map Sensorwert (sensorMin..sensorMax) auf Helligkeit (minBrightness..maxBrightness)
+  uint16_t newBrightness;
+  if (sensorValue <= sensorMin) {
+    newBrightness = minBrightness;
+  } else if (sensorValue >= sensorMax) {
+    newBrightness = maxBrightness;
+  } else {
+    // Lineare Interpolation zwischen Min und Max
+    newBrightness = map(sensorValue, sensorMin, sensorMax, minBrightness, maxBrightness);
+  }
+
+  // Nur aktualisieren wenn sich die Helligkeit signifikant ändert (Hysterese verhindert Flackern)
+  if (abs((int)newBrightness - (int)brightness) > BRIGHTNESS_CHANGE_THRESHOLD) {
+    brightness = newBrightness;
+    analogWrite(PIN_ENABLE, 1023 - brightness);
+    Serial.printf("Auto-Brightness: Sensor=%d -> Brightness=%d\n", sensorValue, brightness);
+  }
 }
 
 void handleRoot() {
@@ -88,11 +175,18 @@ void handleStatus() {
   } else {
     strncpy(buf, "--:--:--", sizeof(buf));
   }
+  uint16_t sensorValue = analogRead(LIGHT_SENSOR_PIN);
   String json = String("{\"time\":\"") + buf +
                 "\",\"effect\":\"" + currentEffect->name +
                 "\",\"tz\":\"" + tzString +
                 "\",\"brightness\":" + String(brightness) +
-                ",\"sandEnabled\":" + (SandClockEffect::sandEffectEnabled ? "true" : "false") + "}";
+                ",\"sandEnabled\":" + (SandClockEffect::sandEffectEnabled ? "true" : "false") +
+                ",\"autoBrightness\":" + (autoBrightnessEnabled ? "true" : "false") +
+                ",\"minBrightness\":" + String(minBrightness) +
+                ",\"maxBrightness\":" + String(maxBrightness) +
+                ",\"sensorMin\":" + String(sensorMin) +
+                ",\"sensorMax\":" + String(sensorMax) +
+                ",\"sensorValue\":" + String(sensorValue) + "}";
   server.send(200, "application/json", json);
 }
 
@@ -116,6 +210,48 @@ void handleSetBrightness() {
   } else {
     server.send(400, "text/plain", "Missing b");
   }
+}
+
+void handleSetAutoBrightness() {
+  // Parameter aus HTTP-Request lesen und validieren
+  if (server.hasArg("enabled")) {
+    String val = server.arg("enabled");
+    autoBrightnessEnabled = (val == "true" || val == "1");
+  }
+  if (server.hasArg("min")) {
+    minBrightness = constrain(server.arg("min").toInt(), 0, 1023);
+  }
+  if (server.hasArg("max")) {
+    maxBrightness = constrain(server.arg("max").toInt(), 0, 1023);
+  }
+  if (server.hasArg("sensorMin")) {
+    sensorMin = constrain(server.arg("sensorMin").toInt(), 0, 1023);
+  }
+  if (server.hasArg("sensorMax")) {
+    sensorMax = constrain(server.arg("sensorMax").toInt(), 0, 1023);
+  }
+
+  // Sicherstellen dass min < max (automatische Korrektur ungültiger Werte)
+  if (minBrightness > maxBrightness) {
+    uint16_t temp = minBrightness;
+    minBrightness = maxBrightness;
+    maxBrightness = temp;
+  }
+  if (sensorMin > sensorMax) {
+    uint16_t temp = sensorMin;
+    sensorMin = sensorMax;
+    sensorMax = temp;
+  }
+
+  persistBrightnessToStorage();
+
+  // JSON-Response erstellen
+  String json = String("{\"autoBrightness\":") + (autoBrightnessEnabled ? "true" : "false") +
+                ",\"minBrightness\":" + String(minBrightness) +
+                ",\"maxBrightness\":" + String(maxBrightness) +
+                ",\"sensorMin\":" + String(sensorMin) +
+                ",\"sensorMax\":" + String(sensorMax) + "}";
+  server.send(200, "application/json", json);
 }
 
 
@@ -219,8 +355,9 @@ bool setupWiFi() {
 
 void setupNTP() {
   configTime(0, 0, "pool.ntp.org", "time.nist.gov");
+  // Zeitzone mit POSIX TZ String setzen - DST (Sommer-/Winterzeit) wird automatisch berücksichtigt
   setenv("TZ", tzString.c_str(), 1);
-  tzset();
+  tzset(); // Zeitzone anwenden
 
   Serial.print("Waiting for NTP sync");
   int attempts = 0;
@@ -262,6 +399,7 @@ void setup() {
   server.on("/api/status", handleStatus);
   server.on("/api/setTimezone", handleSetTimezone);
   server.on("/api/setBrightness", handleSetBrightness);
+  server.on("/api/setAutoBrightness", handleSetAutoBrightness);
   server.on("/effect/snake", []() { selectEffect(0); });
   server.on("/effect/clock", []() { selectEffect(1); });
   server.on("/effect/rain", []() { selectEffect(2); });
@@ -296,6 +434,7 @@ void loop() {
   static unsigned long lastButtonCheck = 0;
   static unsigned long lastWiFiCheck = 0;
   static unsigned long lastStatusPrint = 0;
+  static unsigned long lastBrightnessUpdate = 0;
 
   server.handleClient();
   yield();
@@ -342,6 +481,12 @@ void loop() {
     Serial.printf("Uptime: %lus, Free heap: %d bytes\n",
                   millis() / 1000, ESP.getFreeHeap());
     lastStatusPrint = millis();
+  }
+
+  // Auto-Brightness regelmäßig aktualisieren
+  if (millis() - lastBrightnessUpdate > AUTO_BRIGHTNESS_UPDATE_INTERVAL) {
+    updateAutoBrightness();
+    lastBrightnessUpdate = millis();
   }
 
   yield();
