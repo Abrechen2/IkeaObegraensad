@@ -41,9 +41,9 @@ uint16_t sensorMax = 450;       // Maximaler Sensorwert (hell) - LDR-spezifisch
 const uint8_t LIGHT_SENSOR_PIN = A0; // Analoger Pin für Phototransistor
 
 // Auto-Brightness Konstanten
-const uint8_t LIGHT_SENSOR_SAMPLES = 10;    // Anzahl der Sensor-Messungen für Mittelwertbildung (erhöht für Stabilität)
-const uint8_t LIGHT_SENSOR_SAMPLE_DELAY = 20; // ms zwischen Sensor-Messungen (erhöht für bessere Mittelung)
-const uint16_t BRIGHTNESS_CHANGE_THRESHOLD = 80; // Minimale Änderung (~8%) bevor Update erfolgt (erhöht gegen TV-Flackern)
+const uint8_t LIGHT_SENSOR_SAMPLES = 5;    // Anzahl der Sensor-Messungen für Mittelwertbildung (erhöht für Stabilität)
+const uint8_t LIGHT_SENSOR_SAMPLE_DELAY = 10; // ms zwischen Sensor-Messungen (erhöht für bessere Mittelung)
+const uint16_t BRIGHTNESS_CHANGE_THRESHOLD = 50; // Minimale Änderung (~8%) bevor Update erfolgt (erhöht gegen TV-Flackern)
 const unsigned long AUTO_BRIGHTNESS_UPDATE_INTERVAL = 5000; // ms zwischen Auto-Brightness Updates (5s statt 1s für Raumlichtstabilität)
 
 // Gleitender Durchschnitt für sanfte Helligkeitsanpassung (gegen TV-Flackern)
