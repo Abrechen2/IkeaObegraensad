@@ -145,6 +145,35 @@ const char WEB_INTERFACE_HTML[] PROGMEM = R"rawl(
       gap: 0.5rem;
     }
 
+    .range-control {
+      display: flex;
+      gap: 0.75rem;
+      align-items: center;
+    }
+
+    .range-control input[type="range"] {
+      flex: 1;
+    }
+
+    .range-control input[type="number"] {
+      width: 85px;
+      padding: 0.5rem 0.6rem;
+      border-radius: 8px;
+      border: 1px solid var(--border);
+      background: rgba(18, 20, 32, 0.65);
+      color: var(--text);
+      font-size: 0.95rem;
+      font-weight: 600;
+      text-align: center;
+      transition: border 0.2s ease;
+    }
+
+    .range-control input[type="number"]:focus {
+      outline: none;
+      border-color: var(--accent);
+      box-shadow: 0 0 0 3px rgba(91, 192, 235, 0.2);
+    }
+
     input[type="range"] {
       -webkit-appearance: none;
       width: 100%;
@@ -272,8 +301,10 @@ const char WEB_INTERFACE_HTML[] PROGMEM = R"rawl(
       <section class="card">
         <div class="range-wrapper">
           <label for="brightness">Helligkeit (Manuell)</label>
-          <input id="brightness" type="range" min="0" max="1023" step="1">
-          <div class="range-value" id="brightnessValue">0</div>
+          <div class="range-control">
+            <input id="brightness" type="range" min="0" max="1023" step="1">
+            <input id="brightnessInput" type="number" min="0" max="1023" step="1" value="0">
+          </div>
         </div>
         <button id="saveBrightness">Helligkeit speichern</button>
         <div id="statusMessage"></div>
@@ -289,23 +320,31 @@ const char WEB_INTERFACE_HTML[] PROGMEM = R"rawl(
       <div class="grid" style="margin-top: 1rem;">
         <div class="range-wrapper">
           <label for="minBrightness">Min. Helligkeit</label>
-          <input id="minBrightness" type="range" min="0" max="1023" step="1">
-          <div class="range-value" id="minBrightnessValue">0</div>
+          <div class="range-control">
+            <input id="minBrightness" type="range" min="0" max="1023" step="1">
+            <input id="minBrightnessInput" type="number" min="0" max="1023" step="1" value="0">
+          </div>
         </div>
         <div class="range-wrapper">
           <label for="maxBrightness">Max. Helligkeit</label>
-          <input id="maxBrightness" type="range" min="0" max="1023" step="1">
-          <div class="range-value" id="maxBrightnessValue">0</div>
+          <div class="range-control">
+            <input id="maxBrightness" type="range" min="0" max="1023" step="1">
+            <input id="maxBrightnessInput" type="number" min="0" max="1023" step="1" value="0">
+          </div>
         </div>
         <div class="range-wrapper">
           <label for="sensorMin">Sensor Min. (dunkel)</label>
-          <input id="sensorMin" type="range" min="0" max="1023" step="1">
-          <div class="range-value" id="sensorMinValue">0</div>
+          <div class="range-control">
+            <input id="sensorMin" type="range" min="0" max="1023" step="1">
+            <input id="sensorMinInput" type="number" min="0" max="1023" step="1" value="5">
+          </div>
         </div>
         <div class="range-wrapper">
           <label for="sensorMax">Sensor Max. (hell)</label>
-          <input id="sensorMax" type="range" min="0" max="1023" step="1">
-          <div class="range-value" id="sensorMaxValue">0</div>
+          <div class="range-control">
+            <input id="sensorMax" type="range" min="0" max="1023" step="1">
+            <input id="sensorMaxInput" type="number" min="0" max="1023" step="1" value="450">
+          </div>
         </div>
       </div>
       <button id="saveAuto">Auto-Brightness speichern</button>
@@ -327,7 +366,7 @@ const char WEB_INTERFACE_HTML[] PROGMEM = R"rawl(
     const tzSelect = document.getElementById('tz');
     const setTzButton = document.getElementById('setTz');
     const brightnessSlider = document.getElementById('brightness');
-    const brightnessValue = document.getElementById('brightnessValue');
+    const brightnessInput = document.getElementById('brightnessInput');
     const saveBrightnessButton = document.getElementById('saveBrightness');
     const statusMessage = document.getElementById('statusMessage');
     const toggleSandButton = document.getElementById('toggleSand');
@@ -339,13 +378,16 @@ const char WEB_INTERFACE_HTML[] PROGMEM = R"rawl(
     const maxBrightnessSlider = document.getElementById('maxBrightness');
     const sensorMinSlider = document.getElementById('sensorMin');
     const sensorMaxSlider = document.getElementById('sensorMax');
-    const minBrightnessValue = document.getElementById('minBrightnessValue');
-    const maxBrightnessValue = document.getElementById('maxBrightnessValue');
-    const sensorMinValue = document.getElementById('sensorMinValue');
-    const sensorMaxValue = document.getElementById('sensorMaxValue');
+    const minBrightnessInput = document.getElementById('minBrightnessInput');
+    const maxBrightnessInput = document.getElementById('maxBrightnessInput');
+    const sensorMinInput = document.getElementById('sensorMinInput');
+    const sensorMaxInput = document.getElementById('sensorMaxInput');
     const saveAutoButton = document.getElementById('saveAuto');
 
     let brightnessDebounce;
+
+    // Track which fields are currently being edited to prevent refresh overwrites
+    const editingFields = new Set();
 
     const effectLabels = {
       snake: 'Snake',
@@ -372,10 +414,22 @@ const char WEB_INTERFACE_HTML[] PROGMEM = R"rawl(
       return effectLabels[effect] || (effect.charAt(0).toUpperCase() + effect.slice(1));
     }
 
+    // Helper: sync slider and input
+    function syncSliderInput(slider, input, value) {
+      slider.value = value;
+      input.value = value;
+    }
+
+    // Helper: update value only if not being edited
+    function safeUpdate(fieldName, slider, input, value) {
+      if (!editingFields.has(fieldName)) {
+        syncSliderInput(slider, input, value);
+      }
+    }
+
     function updateBrightnessUI(value) {
-      brightnessValue.textContent = value;
       currentBrightnessEl.textContent = value;
-      brightnessSlider.value = value;
+      safeUpdate('brightness', brightnessSlider, brightnessInput, value);
     }
 
     async function fetchJson(url) {
@@ -412,23 +466,21 @@ const char WEB_INTERFACE_HTML[] PROGMEM = R"rawl(
         }
         if (data.autoBrightness !== undefined) {
           autoStatusEl.textContent = data.autoBrightness ? 'An' : 'Aus';
-          autoEnabled.checked = data.autoBrightness;
+          if (!editingFields.has('autoEnabled')) {
+            autoEnabled.checked = data.autoBrightness;
+          }
         }
         if (data.minBrightness !== undefined) {
-          minBrightnessSlider.value = data.minBrightness;
-          minBrightnessValue.textContent = data.minBrightness;
+          safeUpdate('minBrightness', minBrightnessSlider, minBrightnessInput, data.minBrightness);
         }
         if (data.maxBrightness !== undefined) {
-          maxBrightnessSlider.value = data.maxBrightness;
-          maxBrightnessValue.textContent = data.maxBrightness;
+          safeUpdate('maxBrightness', maxBrightnessSlider, maxBrightnessInput, data.maxBrightness);
         }
         if (data.sensorMin !== undefined) {
-          sensorMinSlider.value = data.sensorMin;
-          sensorMinValue.textContent = data.sensorMin;
+          safeUpdate('sensorMin', sensorMinSlider, sensorMinInput, data.sensorMin);
         }
         if (data.sensorMax !== undefined) {
-          sensorMaxSlider.value = data.sensorMax;
-          sensorMaxValue.textContent = data.sensorMax;
+          safeUpdate('sensorMax', sensorMaxSlider, sensorMaxInput, data.sensorMax);
         }
 
         showStatus('');
@@ -477,10 +529,10 @@ const char WEB_INTERFACE_HTML[] PROGMEM = R"rawl(
       try {
         const params = new URLSearchParams({
           enabled: autoEnabled.checked ? 'true' : 'false',
-          min: minBrightnessSlider.value,
-          max: maxBrightnessSlider.value,
-          sensorMin: sensorMinSlider.value,
-          sensorMax: sensorMaxSlider.value
+          min: minBrightnessInput.value,
+          max: maxBrightnessInput.value,
+          sensorMin: sensorMinInput.value,
+          sensorMax: sensorMaxInput.value
         });
         await fetch('/api/setAutoBrightness?' + params.toString());
         showStatus('Auto-Brightness Einstellungen gespeichert.');
@@ -506,41 +558,99 @@ const char WEB_INTERFACE_HTML[] PROGMEM = R"rawl(
       updateTimezone();
     });
 
+    // Brightness slider/input sync and save
     brightnessSlider.addEventListener('input', event => {
       const value = event.target.value;
-      updateBrightnessUI(value);
+      brightnessInput.value = value;
+      currentBrightnessEl.textContent = value;
       clearTimeout(brightnessDebounce);
       brightnessDebounce = setTimeout(() => saveBrightness(value), 400);
     });
 
+    brightnessInput.addEventListener('input', event => {
+      const value = Math.max(0, Math.min(1023, parseInt(event.target.value) || 0));
+      brightnessSlider.value = value;
+      currentBrightnessEl.textContent = value;
+      clearTimeout(brightnessDebounce);
+      brightnessDebounce = setTimeout(() => saveBrightness(value), 400);
+    });
+
+    brightnessSlider.addEventListener('focus', () => editingFields.add('brightness'));
+    brightnessSlider.addEventListener('blur', () => editingFields.delete('brightness'));
+    brightnessInput.addEventListener('focus', () => editingFields.add('brightness'));
+    brightnessInput.addEventListener('blur', () => editingFields.delete('brightness'));
+
     saveBrightnessButton.addEventListener('click', () => {
-      saveBrightness(brightnessSlider.value);
+      saveBrightness(brightnessInput.value);
     });
 
     toggleSandButton.addEventListener('click', toggleSandEffect);
 
-    // Auto-Brightness Event Listener
+    // Auto-Brightness Event Listeners
+    // Min Brightness
     minBrightnessSlider.addEventListener('input', event => {
-      minBrightnessValue.textContent = event.target.value;
+      minBrightnessInput.value = event.target.value;
     });
+    minBrightnessInput.addEventListener('input', event => {
+      const value = Math.max(0, Math.min(1023, parseInt(event.target.value) || 0));
+      minBrightnessSlider.value = value;
+      minBrightnessInput.value = value;
+    });
+    minBrightnessSlider.addEventListener('focus', () => editingFields.add('minBrightness'));
+    minBrightnessSlider.addEventListener('blur', () => editingFields.delete('minBrightness'));
+    minBrightnessInput.addEventListener('focus', () => editingFields.add('minBrightness'));
+    minBrightnessInput.addEventListener('blur', () => editingFields.delete('minBrightness'));
 
+    // Max Brightness
     maxBrightnessSlider.addEventListener('input', event => {
-      maxBrightnessValue.textContent = event.target.value;
+      maxBrightnessInput.value = event.target.value;
     });
+    maxBrightnessInput.addEventListener('input', event => {
+      const value = Math.max(0, Math.min(1023, parseInt(event.target.value) || 0));
+      maxBrightnessSlider.value = value;
+      maxBrightnessInput.value = value;
+    });
+    maxBrightnessSlider.addEventListener('focus', () => editingFields.add('maxBrightness'));
+    maxBrightnessSlider.addEventListener('blur', () => editingFields.delete('maxBrightness'));
+    maxBrightnessInput.addEventListener('focus', () => editingFields.add('maxBrightness'));
+    maxBrightnessInput.addEventListener('blur', () => editingFields.delete('maxBrightness'));
 
+    // Sensor Min
     sensorMinSlider.addEventListener('input', event => {
-      sensorMinValue.textContent = event.target.value;
+      sensorMinInput.value = event.target.value;
     });
+    sensorMinInput.addEventListener('input', event => {
+      const value = Math.max(0, Math.min(1023, parseInt(event.target.value) || 0));
+      sensorMinSlider.value = value;
+      sensorMinInput.value = value;
+    });
+    sensorMinSlider.addEventListener('focus', () => editingFields.add('sensorMin'));
+    sensorMinSlider.addEventListener('blur', () => editingFields.delete('sensorMin'));
+    sensorMinInput.addEventListener('focus', () => editingFields.add('sensorMin'));
+    sensorMinInput.addEventListener('blur', () => editingFields.delete('sensorMin'));
 
+    // Sensor Max
     sensorMaxSlider.addEventListener('input', event => {
-      sensorMaxValue.textContent = event.target.value;
+      sensorMaxInput.value = event.target.value;
     });
+    sensorMaxInput.addEventListener('input', event => {
+      const value = Math.max(0, Math.min(1023, parseInt(event.target.value) || 0));
+      sensorMaxSlider.value = value;
+      sensorMaxInput.value = value;
+    });
+    sensorMaxSlider.addEventListener('focus', () => editingFields.add('sensorMax'));
+    sensorMaxSlider.addEventListener('blur', () => editingFields.delete('sensorMax'));
+    sensorMaxInput.addEventListener('focus', () => editingFields.add('sensorMax'));
+    sensorMaxInput.addEventListener('blur', () => editingFields.delete('sensorMax'));
 
-    saveAutoButton.addEventListener('click', () => {
+    // Auto Enabled Checkbox
+    autoEnabled.addEventListener('focus', () => editingFields.add('autoEnabled'));
+    autoEnabled.addEventListener('blur', () => editingFields.delete('autoEnabled'));
+    autoEnabled.addEventListener('change', () => {
       saveAutoBrightness();
     });
 
-    autoEnabled.addEventListener('change', () => {
+    saveAutoButton.addEventListener('click', () => {
       saveAutoBrightness();
     });
 
