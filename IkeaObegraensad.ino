@@ -41,10 +41,16 @@ uint16_t sensorMax = 450;       // Maximaler Sensorwert (hell) - LDR-spezifisch
 const uint8_t LIGHT_SENSOR_PIN = A0; // Analoger Pin für Phototransistor
 
 // Auto-Brightness Konstanten
-const uint8_t LIGHT_SENSOR_SAMPLES = 5;     // Anzahl der Sensor-Messungen für Mittelwertbildung
-const uint8_t LIGHT_SENSOR_SAMPLE_DELAY = 10; // ms zwischen Sensor-Messungen
-const uint16_t BRIGHTNESS_CHANGE_THRESHOLD = 50; // Minimale Änderung (~5%) bevor Update erfolgt
-const unsigned long AUTO_BRIGHTNESS_UPDATE_INTERVAL = 1000; // ms zwischen Auto-Brightness Updates
+const uint8_t LIGHT_SENSOR_SAMPLES = 10;    // Anzahl der Sensor-Messungen für Mittelwertbildung (erhöht für Stabilität)
+const uint8_t LIGHT_SENSOR_SAMPLE_DELAY = 20; // ms zwischen Sensor-Messungen (erhöht für bessere Mittelung)
+const uint16_t BRIGHTNESS_CHANGE_THRESHOLD = 80; // Minimale Änderung (~8%) bevor Update erfolgt (erhöht gegen TV-Flackern)
+const unsigned long AUTO_BRIGHTNESS_UPDATE_INTERVAL = 5000; // ms zwischen Auto-Brightness Updates (5s statt 1s für Raumlichtstabilität)
+
+// Gleitender Durchschnitt für sanfte Helligkeitsanpassung (gegen TV-Flackern)
+const uint8_t SENSOR_HISTORY_SIZE = 6;      // Anzahl der letzten Messwerte für gleitenden Durchschnitt
+uint16_t sensorHistory[SENSOR_HISTORY_SIZE] = {0}; // Ringpuffer für Sensorwerte
+uint8_t sensorHistoryIndex = 0;             // Aktueller Index im Ringpuffer
+bool sensorHistoryFilled = false;           // Ist der Ringpuffer vollständig gefüllt?
 
 const uint8_t EEPROM_MAGIC = 0xB7;
 const uint16_t EEPROM_SIZE = 16; // Erweitert von 8 auf 16 Bytes
@@ -136,29 +142,57 @@ uint16_t readLightSensor() {
   return sum / LIGHT_SENSOR_SAMPLES;
 }
 
+// Gleitender Durchschnitt über die letzten N Sensorwerte (reduziert TV-Flackern)
+uint16_t getSmoothedSensorValue(uint16_t newValue) {
+  // Neuen Wert in Ringpuffer speichern
+  sensorHistory[sensorHistoryIndex] = newValue;
+  sensorHistoryIndex = (sensorHistoryIndex + 1) % SENSOR_HISTORY_SIZE;
+
+  if (!sensorHistoryFilled && sensorHistoryIndex == 0) {
+    sensorHistoryFilled = true;
+  }
+
+  // Durchschnitt berechnen
+  uint32_t sum = 0;
+  uint8_t count = sensorHistoryFilled ? SENSOR_HISTORY_SIZE : sensorHistoryIndex;
+
+  if (count == 0) {
+    return newValue; // Fallback beim ersten Aufruf
+  }
+
+  for (uint8_t i = 0; i < count; i++) {
+    sum += sensorHistory[i];
+  }
+
+  return sum / count;
+}
+
 void updateAutoBrightness() {
   if (!autoBrightnessEnabled) {
     return;
   }
 
-  uint16_t sensorValue = readLightSensor();
+  // Sensor auslesen und durch gleitenden Durchschnitt glätten (gegen TV-Flackern)
+  uint16_t rawSensorValue = readLightSensor();
+  uint16_t smoothedSensorValue = getSmoothedSensorValue(rawSensorValue);
 
   // Map Sensorwert (sensorMin..sensorMax) auf Helligkeit (minBrightness..maxBrightness)
   uint16_t newBrightness;
-  if (sensorValue <= sensorMin) {
+  if (smoothedSensorValue <= sensorMin) {
     newBrightness = minBrightness;
-  } else if (sensorValue >= sensorMax) {
+  } else if (smoothedSensorValue >= sensorMax) {
     newBrightness = maxBrightness;
   } else {
     // Lineare Interpolation zwischen Min und Max
-    newBrightness = map(sensorValue, sensorMin, sensorMax, minBrightness, maxBrightness);
+    newBrightness = map(smoothedSensorValue, sensorMin, sensorMax, minBrightness, maxBrightness);
   }
 
   // Nur aktualisieren wenn sich die Helligkeit signifikant ändert (Hysterese verhindert Flackern)
   if (abs((int)newBrightness - (int)brightness) > BRIGHTNESS_CHANGE_THRESHOLD) {
     brightness = newBrightness;
     analogWrite(PIN_ENABLE, 1023 - brightness);
-    Serial.printf("Auto-Brightness: Sensor=%d -> Brightness=%d\n", sensorValue, brightness);
+    Serial.printf("Auto-Brightness: Raw=%d, Smoothed=%d -> Brightness=%d\n",
+                  rawSensorValue, smoothedSensorValue, brightness);
   }
 }
 
