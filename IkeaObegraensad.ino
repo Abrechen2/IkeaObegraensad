@@ -38,7 +38,7 @@ String mqttServer = "";  // MQTT Broker IP (wird über Web-UI konfiguriert)
 uint16_t mqttPort = 1883;
 String mqttUser = "";    // Optional
 String mqttPassword = ""; // Optional
-String mqttPresenceTopic = "zigbee2mqtt/aqara_presence/occupancy"; // Topic für Präsenzmelder
+String mqttPresenceTopic = "zigbee2mqtt/aqara_fp2"; // Topic für Präsenzmelder (FP2 sendet JSON an Haupt-Topic)
 bool mqttEnabled = false;
 bool presenceDetected = false;
 unsigned long lastPresenceTime = 0;
@@ -301,9 +301,38 @@ void mqttCallback(char* topic, byte* payload, unsigned int length) {
 
   Serial.printf("MQTT Message received on topic %s: %s\n", topic, message.c_str());
 
-  // Präsenz-Status auswerten (Aqara sendet true/false oder 1/0)
+  // Präsenz-Status auswerten
   if (String(topic) == mqttPresenceTopic) {
-    bool newPresence = (message == "true" || message == "1" || message == "occupied");
+    bool newPresence = false;
+
+    // Verschiedene Payload-Formate unterstützen:
+    // 1. Einfache Werte: "true", "false", "1", "0", "occupied"
+    // 2. JSON (Aqara FP2): {"presence":true} oder {"occupancy":true}
+
+    message.toLowerCase();
+    message.trim();
+
+    // Einfache Werte prüfen
+    if (message == "true" || message == "1" || message == "occupied") {
+      newPresence = true;
+    }
+    // JSON-Parsing (einfach, ohne Bibliothek)
+    else if (message.indexOf("\"presence\"") >= 0 || message.indexOf("\"occupancy\"") >= 0) {
+      // Suche nach "presence":true oder "occupancy":true in JSON
+      int truePos = message.indexOf(":true");
+      int falsePos = message.indexOf(":false");
+
+      if (truePos > 0) {
+        // Prüfe ob "true" nach "presence" oder "occupancy" kommt
+        int presencePos = message.indexOf("\"presence\"");
+        int occupancyPos = message.indexOf("\"occupancy\"");
+
+        if ((presencePos >= 0 && truePos > presencePos) ||
+            (occupancyPos >= 0 && truePos > occupancyPos)) {
+          newPresence = true;
+        }
+      }
+    }
 
     if (newPresence != presenceDetected) {
       presenceDetected = newPresence;

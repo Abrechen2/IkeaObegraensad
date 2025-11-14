@@ -49,11 +49,22 @@ The device can integrate with Aqara presence sensors (or any MQTT-based presence
 - **Real-time status**: Web interface shows current presence and display status
 
 #### MQTT Configuration Example
-For Zigbee2MQTT with Aqara FP1 presence sensor:
+For Zigbee2MQTT with Aqara FP2/FP1 presence sensor:
 - **MQTT Broker**: IP address of your Zigbee2MQTT server (e.g., `192.168.1.100`)
 - **MQTT Port**: Default `1883`
-- **MQTT Topic**: `zigbee2mqtt/aqara_presence/occupancy` (adjust based on your sensor name)
+- **MQTT Topic**: `zigbee2mqtt/[your_sensor_name]` (e.g., `zigbee2mqtt/aqara_fp2`)
 - **Presence Timeout**: 300 seconds (5 minutes) - adjustable from 10s to 1 hour
+
+**Finding your MQTT Topic:**
+1. Open your Zigbee2MQTT web interface
+2. Find your Aqara FP2 sensor in the device list
+3. Note the "Friendly name" - this is used in the topic: `zigbee2mqtt/[friendly_name]`
+4. Or use an MQTT client (like MQTT Explorer) to see all topics
+
+**Supported Payload Formats:**
+The code automatically detects and supports multiple formats:
+- Simple values: `true`, `false`, `1`, `0`, `occupied`
+- JSON (Aqara FP2): `{"presence":true}`, `{"occupancy":true}`
 
 ### Stability Improvements
 - **Non-blocking operations**: All sensor readings and network operations are non-blocking to prevent watchdog timer resets

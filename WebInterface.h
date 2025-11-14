@@ -383,7 +383,7 @@ const char WEB_INTERFACE_HTML[] PROGMEM = R"rawl(
       </div>
       <div style="margin-top: 0.85rem;">
         <label for="mqttTopic">MQTT Topic (Präsenz)</label>
-        <input id="mqttTopic" type="text" placeholder="zigbee2mqtt/aqara_presence/occupancy" value="zigbee2mqtt/aqara_presence/occupancy">
+        <input id="mqttTopic" type="text" placeholder="zigbee2mqtt/aqara_fp2" value="zigbee2mqtt/aqara_fp2">
       </div>
       <div class="range-wrapper" style="margin-top: 0.85rem;">
         <label for="presenceTimeout">Display-Timeout nach Präsenz (Sekunden)</label>
@@ -394,7 +394,8 @@ const char WEB_INTERFACE_HTML[] PROGMEM = R"rawl(
       </div>
       <button id="saveMqtt">MQTT Einstellungen speichern</button>
       <p style="font-size: 0.85rem; color: var(--muted); margin: 0.5rem 0 0 0;">
-        Hinweis: Nach dem Speichern wird die MQTT-Verbindung neu aufgebaut. Das Display schaltet sich automatisch aus, wenn keine Präsenz erkannt wird.
+        <strong>Hinweis:</strong> Nach dem Speichern wird die MQTT-Verbindung neu aufgebaut. Das Display schaltet sich automatisch aus, wenn keine Präsenz erkannt wird.<br>
+        <strong>Aqara FP2:</strong> Topic ist <code>zigbee2mqtt/[dein_sensor_name]</code> (ohne /presence oder /occupancy). Der Code erkennt JSON automatisch.
       </p>
     </section>
 
