@@ -254,6 +254,13 @@ const char WEB_INTERFACE_HTML[] PROGMEM = R"rawl(
         <div>Lichtsensor <span id="sensorValue">0</span></div>
         <div>Auto-Helligkeit <span id="autoStatus">Aus</span></div>
       </div>
+      <div class="status-row">
+        <div>MQTT <span id="mqttStatus">Aus</span></div>
+        <div>Präsenz <span id="presenceStatus">-</span></div>
+      </div>
+      <div class="status-row">
+        <div>Display <span id="displayStatus">An</span></div>
+      </div>
     </section>
 
     <div class="grid">
@@ -350,6 +357,47 @@ const char WEB_INTERFACE_HTML[] PROGMEM = R"rawl(
       <button id="saveAuto">Auto-Brightness speichern</button>
     </section>
 
+    <section class="card">
+      <h3 style="margin: 0 0 1rem 0; font-size: 1.2rem;">MQTT Präsenzmelder (Aqara)</h3>
+      <label style="display: flex; align-items: center; gap: 0.5rem; cursor: pointer;">
+        <input type="checkbox" id="mqttEnabled" style="width: auto; cursor: pointer;">
+        <span>MQTT aktivieren</span>
+      </label>
+      <div class="grid" style="margin-top: 1rem;">
+        <div>
+          <label for="mqttServer">MQTT Broker IP</label>
+          <input id="mqttServer" type="text" placeholder="192.168.1.100">
+        </div>
+        <div>
+          <label for="mqttPort">MQTT Port</label>
+          <input id="mqttPort" type="number" min="1" max="65535" value="1883">
+        </div>
+        <div>
+          <label for="mqttUser">MQTT User (optional)</label>
+          <input id="mqttUser" type="text" placeholder="username">
+        </div>
+        <div>
+          <label for="mqttPassword">MQTT Passwort (optional)</label>
+          <input id="mqttPassword" type="password" placeholder="password">
+        </div>
+      </div>
+      <div style="margin-top: 0.85rem;">
+        <label for="mqttTopic">MQTT Topic (Präsenz)</label>
+        <input id="mqttTopic" type="text" placeholder="zigbee2mqtt/aqara_presence/occupancy" value="zigbee2mqtt/aqara_presence/occupancy">
+      </div>
+      <div class="range-wrapper" style="margin-top: 0.85rem;">
+        <label for="presenceTimeout">Display-Timeout nach Präsenz (Sekunden)</label>
+        <div class="range-control">
+          <input id="presenceTimeout" type="range" min="10" max="600" step="10" value="300">
+          <input id="presenceTimeoutInput" type="number" min="10" max="3600" step="10" value="300">
+        </div>
+      </div>
+      <button id="saveMqtt">MQTT Einstellungen speichern</button>
+      <p style="font-size: 0.85rem; color: var(--muted); margin: 0.5rem 0 0 0;">
+        Hinweis: Nach dem Speichern wird die MQTT-Verbindung neu aufgebaut. Das Display schaltet sich automatisch aus, wenn keine Präsenz erkannt wird.
+      </p>
+    </section>
+
     <footer>
       <span>Statusaktualisierung alle 2&nbsp;Sekunden</span>
     </footer>
@@ -383,6 +431,20 @@ const char WEB_INTERFACE_HTML[] PROGMEM = R"rawl(
     const sensorMinInput = document.getElementById('sensorMinInput');
     const sensorMaxInput = document.getElementById('sensorMaxInput');
     const saveAutoButton = document.getElementById('saveAuto');
+
+    // MQTT Elemente
+    const mqttEnabledCheckbox = document.getElementById('mqttEnabled');
+    const mqttServerInput = document.getElementById('mqttServer');
+    const mqttPortInput = document.getElementById('mqttPort');
+    const mqttUserInput = document.getElementById('mqttUser');
+    const mqttPasswordInput = document.getElementById('mqttPassword');
+    const mqttTopicInput = document.getElementById('mqttTopic');
+    const presenceTimeoutSlider = document.getElementById('presenceTimeout');
+    const presenceTimeoutInput = document.getElementById('presenceTimeoutInput');
+    const saveMqttButton = document.getElementById('saveMqtt');
+    const mqttStatusEl = document.getElementById('mqttStatus');
+    const presenceStatusEl = document.getElementById('presenceStatus');
+    const displayStatusEl = document.getElementById('displayStatus');
 
     let brightnessDebounce;
 
@@ -483,6 +545,44 @@ const char WEB_INTERFACE_HTML[] PROGMEM = R"rawl(
           safeUpdate('sensorMax', sensorMaxSlider, sensorMaxInput, data.sensorMax);
         }
 
+        // MQTT Status
+        if (data.mqttEnabled !== undefined) {
+          if (!editingFields.has('mqttEnabled')) {
+            mqttEnabledCheckbox.checked = data.mqttEnabled;
+          }
+          if (data.mqttConnected) {
+            mqttStatusEl.textContent = 'Verbunden';
+            mqttStatusEl.style.color = '#5bc0eb';
+          } else if (data.mqttEnabled) {
+            mqttStatusEl.textContent = 'Getrennt';
+            mqttStatusEl.style.color = '#ff7b7b';
+          } else {
+            mqttStatusEl.textContent = 'Aus';
+            mqttStatusEl.style.color = '';
+          }
+        }
+        if (data.mqttServer !== undefined && !editingFields.has('mqttServer')) {
+          mqttServerInput.value = data.mqttServer;
+        }
+        if (data.mqttPort !== undefined && !editingFields.has('mqttPort')) {
+          mqttPortInput.value = data.mqttPort;
+        }
+        if (data.mqttTopic !== undefined && !editingFields.has('mqttTopic')) {
+          mqttTopicInput.value = data.mqttTopic;
+        }
+        if (data.presenceDetected !== undefined) {
+          presenceStatusEl.textContent = data.presenceDetected ? 'Erkannt' : 'Nicht erkannt';
+          presenceStatusEl.style.color = data.presenceDetected ? '#5bc0eb' : '';
+        }
+        if (data.displayEnabled !== undefined) {
+          displayStatusEl.textContent = data.displayEnabled ? 'An' : 'Aus';
+          displayStatusEl.style.color = data.displayEnabled ? '' : '#ff7b7b';
+        }
+        if (data.presenceTimeout !== undefined) {
+          const timeoutSeconds = Math.floor(data.presenceTimeout / 1000);
+          safeUpdate('presenceTimeout', presenceTimeoutSlider, presenceTimeoutInput, timeoutSeconds);
+        }
+
         showStatus('');
       } catch (error) {
         showStatus('Status konnte nicht geladen werden. ' + error.message, 'error');
@@ -538,6 +638,25 @@ const char WEB_INTERFACE_HTML[] PROGMEM = R"rawl(
         showStatus('Auto-Brightness Einstellungen gespeichert.');
       } catch (error) {
         showStatus('Auto-Brightness konnte nicht gespeichert werden.', 'error');
+      }
+    }
+
+    async function saveMqtt() {
+      try {
+        const timeoutMs = parseInt(presenceTimeoutInput.value) * 1000;
+        const params = new URLSearchParams({
+          enabled: mqttEnabledCheckbox.checked ? 'true' : 'false',
+          server: mqttServerInput.value,
+          port: mqttPortInput.value,
+          user: mqttUserInput.value,
+          password: mqttPasswordInput.value,
+          topic: mqttTopicInput.value,
+          timeout: timeoutMs.toString()
+        });
+        await fetch('/api/setMqtt?' + params.toString());
+        showStatus('MQTT Einstellungen gespeichert. Verbindung wird neu aufgebaut...');
+      } catch (error) {
+        showStatus('MQTT konnte nicht gespeichert werden.', 'error');
       }
     }
 
@@ -652,6 +771,34 @@ const char WEB_INTERFACE_HTML[] PROGMEM = R"rawl(
 
     saveAutoButton.addEventListener('click', () => {
       saveAutoBrightness();
+    });
+
+    // MQTT Event Listeners
+    mqttEnabledCheckbox.addEventListener('focus', () => editingFields.add('mqttEnabled'));
+    mqttEnabledCheckbox.addEventListener('blur', () => editingFields.delete('mqttEnabled'));
+    mqttServerInput.addEventListener('focus', () => editingFields.add('mqttServer'));
+    mqttServerInput.addEventListener('blur', () => editingFields.delete('mqttServer'));
+    mqttPortInput.addEventListener('focus', () => editingFields.add('mqttPort'));
+    mqttPortInput.addEventListener('blur', () => editingFields.delete('mqttPort'));
+    mqttTopicInput.addEventListener('focus', () => editingFields.add('mqttTopic'));
+    mqttTopicInput.addEventListener('blur', () => editingFields.delete('mqttTopic'));
+
+    // Presence Timeout Slider/Input
+    presenceTimeoutSlider.addEventListener('input', event => {
+      presenceTimeoutInput.value = event.target.value;
+    });
+    presenceTimeoutInput.addEventListener('input', event => {
+      const value = Math.max(10, Math.min(3600, parseInt(event.target.value) || 300));
+      presenceTimeoutSlider.value = value;
+      presenceTimeoutInput.value = value;
+    });
+    presenceTimeoutSlider.addEventListener('focus', () => editingFields.add('presenceTimeout'));
+    presenceTimeoutSlider.addEventListener('blur', () => editingFields.delete('presenceTimeout'));
+    presenceTimeoutInput.addEventListener('focus', () => editingFields.add('presenceTimeout'));
+    presenceTimeoutInput.addEventListener('blur', () => editingFields.delete('presenceTimeout'));
+
+    saveMqttButton.addEventListener('click', () => {
+      saveMqtt();
     });
 
     refreshStatus();
