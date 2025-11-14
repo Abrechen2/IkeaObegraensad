@@ -1,6 +1,7 @@
 #include <Arduino.h>
 #include <ESP8266WiFi.h>
 #include <ESP8266WebServer.h>
+#include <PubSubClient.h>
 #include <EEPROM.h>
 #include <time.h>
 #include <stdlib.h>
@@ -29,6 +30,21 @@ extern "C" {
 ESP8266WebServer server(80);
 bool serverStarted = false;
 bool ntpConfigured = false;
+
+// MQTT Configuration for Aqara Presence Sensor
+WiFiClient espClient;
+PubSubClient mqttClient(espClient);
+String mqttServer = "";  // MQTT Broker IP (wird über Web-UI konfiguriert)
+uint16_t mqttPort = 1883;
+String mqttUser = "";    // Optional
+String mqttPassword = ""; // Optional
+String mqttPresenceTopic = "zigbee2mqtt/aqara_fp2"; // Topic für Präsenzmelder (FP2 sendet JSON an Haupt-Topic)
+bool mqttEnabled = false;
+bool presenceDetected = false;
+unsigned long lastPresenceTime = 0;
+uint32_t presenceTimeout = 300000; // 5 Minuten in ms (Display bleibt 5 Min an nach letzter Erkennung)
+bool displayEnabled = true; // Display-Status (wird durch Präsenz gesteuert)
+
 const uint16_t DEFAULT_BRIGHTNESS = 512;
 uint16_t brightness = DEFAULT_BRIGHTNESS; // 0..1023
 
@@ -40,20 +56,27 @@ uint16_t sensorMin = 5;         // Minimaler Sensorwert (dunkel) - LDR-spezifisc
 uint16_t sensorMax = 450;       // Maximaler Sensorwert (hell) - LDR-spezifisch
 const uint8_t LIGHT_SENSOR_PIN = A0; // Analoger Pin für Phototransistor
 
-// Auto-Brightness Konstanten
-const uint8_t LIGHT_SENSOR_SAMPLES = 5;    // Anzahl der Sensor-Messungen für Mittelwertbildung (erhöht für Stabilität)
-const uint8_t LIGHT_SENSOR_SAMPLE_DELAY = 10; // ms zwischen Sensor-Messungen (erhöht für bessere Mittelung)
-const uint16_t BRIGHTNESS_CHANGE_THRESHOLD = 50; // Minimale Änderung (~8%) bevor Update erfolgt (erhöht gegen TV-Flackern)
-const unsigned long AUTO_BRIGHTNESS_UPDATE_INTERVAL = 5000; // ms zwischen Auto-Brightness Updates (5s statt 1s für Raumlichtstabilität)
 
-// Gleitender Durchschnitt für sanfte Helligkeitsanpassung (gegen TV-Flackern)
-const uint8_t SENSOR_HISTORY_SIZE = 6;      // Anzahl der letzten Messwerte für gleitenden Durchschnitt
-uint16_t sensorHistory[SENSOR_HISTORY_SIZE] = {0}; // Ringpuffer für Sensorwerte
-uint8_t sensorHistoryIndex = 0;             // Aktueller Index im Ringpuffer
-bool sensorHistoryFilled = false;           // Ist der Ringpuffer vollständig gefüllt?
+// Auto-Brightness Konstanten (optimiert gegen Watchdog-Resets)
+const uint8_t LIGHT_SENSOR_SAMPLES = 5;     // Reduziert von 10 auf 5 für schnellere Messung
+const uint8_t LIGHT_SENSOR_SAMPLE_DELAY = 10; // Reduziert von 20ms auf 10ms
+const uint16_t BRIGHTNESS_CHANGE_THRESHOLD = 50; // Reduziert für sanftere Übergänge
+const unsigned long AUTO_BRIGHTNESS_UPDATE_INTERVAL = 3000; // 3s Update-Intervall
 
-const uint8_t EEPROM_MAGIC = 0xB7;
-const uint16_t EEPROM_SIZE = 16; // Erweitert von 8 auf 16 Bytes
+// Exponential Moving Average für sanftere Helligkeitsanpassung (besser als Simple Moving Average)
+const float EMA_ALPHA = 0.15;  // Glättungsfaktor (0.0 = keine Änderung, 1.0 = sofortige Änderung)
+float emaSensorValue = 0.0;    // Aktueller EMA-Wert
+bool emaInitialized = false;   // Ist EMA initialisiert?
+
+// Non-blocking Sensor-Sampling
+uint8_t sensorSampleCount = 0;
+uint32_t sensorSampleSum = 0;
+unsigned long lastSensorSample = 0;
+bool sensorSamplingInProgress = false;
+
+const uint8_t EEPROM_MAGIC = 0xB8;  // Geändert von 0xB7 wegen neuem Layout
+const uint16_t EEPROM_SIZE = 256;   // Erweitert für MQTT-Konfiguration
+
 const uint16_t EEPROM_MAGIC_ADDR = 0;
 const uint16_t EEPROM_BRIGHTNESS_ADDR = 1;
 const uint16_t EEPROM_AUTO_BRIGHTNESS_ADDR = 3;    // bool (1 byte)
@@ -61,6 +84,13 @@ const uint16_t EEPROM_MIN_BRIGHTNESS_ADDR = 4;     // uint16_t (2 bytes)
 const uint16_t EEPROM_MAX_BRIGHTNESS_ADDR = 6;     // uint16_t (2 bytes)
 const uint16_t EEPROM_SENSOR_MIN_ADDR = 8;         // uint16_t (2 bytes)
 const uint16_t EEPROM_SENSOR_MAX_ADDR = 10;        // uint16_t (2 bytes)
+const uint16_t EEPROM_MQTT_ENABLED_ADDR = 12;      // bool (1 byte)
+const uint16_t EEPROM_MQTT_SERVER_ADDR = 13;       // String (64 bytes)
+const uint16_t EEPROM_MQTT_PORT_ADDR = 77;         // uint16_t (2 bytes)
+const uint16_t EEPROM_MQTT_USER_ADDR = 79;         // String (32 bytes)
+const uint16_t EEPROM_MQTT_PASSWORD_ADDR = 111;    // String (32 bytes)
+const uint16_t EEPROM_MQTT_TOPIC_ADDR = 143;       // String (64 bytes)
+const uint16_t EEPROM_PRESENCE_TIMEOUT_ADDR = 207; // uint32_t (4 bytes)
 
 const uint8_t BUTTON_PIN = D4;
 
@@ -92,6 +122,25 @@ Effect *currentEffect = effects[currentEffectIndex];
 //   - M10.5.0/3 = Oktober (M10), 5. Woche, Sonntag, um 03:00 UTC = letzter Sonntag im Oktober
 String tzString = "CET-1CEST,M3.5.0,M10.5.0/3"; // default Europe/Berlin mit DST
 
+// Helper-Funktionen für String-Speicherung in EEPROM
+void writeStringToEEPROM(uint16_t addr, const String &str, uint16_t maxLen) {
+  uint16_t len = min((uint16_t)str.length(), (uint16_t)(maxLen - 1));
+  for (uint16_t i = 0; i < len; i++) {
+    EEPROM.write(addr + i, str[i]);
+  }
+  EEPROM.write(addr + len, 0); // Null-Terminator
+}
+
+String readStringFromEEPROM(uint16_t addr, uint16_t maxLen) {
+  String str = "";
+  for (uint16_t i = 0; i < maxLen; i++) {
+    char c = EEPROM.read(addr + i);
+    if (c == 0) break;
+    str += c;
+  }
+  return str;
+}
+
 void loadBrightnessFromStorage() {
   if (EEPROM.read(EEPROM_MAGIC_ADDR) == EEPROM_MAGIC) {
     uint16_t stored = DEFAULT_BRIGHTNESS;
@@ -105,11 +154,22 @@ void loadBrightnessFromStorage() {
     EEPROM.get(EEPROM_SENSOR_MIN_ADDR, sensorMin);
     EEPROM.get(EEPROM_SENSOR_MAX_ADDR, sensorMax);
 
+    // MQTT-Einstellungen laden
+    mqttEnabled = EEPROM.read(EEPROM_MQTT_ENABLED_ADDR) == 1;
+    mqttServer = readStringFromEEPROM(EEPROM_MQTT_SERVER_ADDR, 64);
+    EEPROM.get(EEPROM_MQTT_PORT_ADDR, mqttPort);
+    mqttUser = readStringFromEEPROM(EEPROM_MQTT_USER_ADDR, 32);
+    mqttPassword = readStringFromEEPROM(EEPROM_MQTT_PASSWORD_ADDR, 32);
+    mqttPresenceTopic = readStringFromEEPROM(EEPROM_MQTT_TOPIC_ADDR, 64);
+    EEPROM.get(EEPROM_PRESENCE_TIMEOUT_ADDR, presenceTimeout);
+
     // Werte validieren
     minBrightness = constrain(minBrightness, 0, 1023);
     maxBrightness = constrain(maxBrightness, 0, 1023);
     sensorMin = constrain(sensorMin, 0, 1023);
     sensorMax = constrain(sensorMax, 0, 1023);
+    if (mqttPort == 0 || mqttPort > 65535) mqttPort = 1883;
+    if (presenceTimeout == 0) presenceTimeout = 300000;
   } else {
     brightness = DEFAULT_BRIGHTNESS;
     autoBrightnessEnabled = false;
@@ -117,6 +177,8 @@ void loadBrightnessFromStorage() {
     maxBrightness = 1023;
     sensorMin = 5;
     sensorMax = 450;
+    mqttEnabled = false;
+    presenceTimeout = 300000;
   }
 }
 
@@ -131,50 +193,85 @@ void persistBrightnessToStorage() {
   EEPROM.commit();
 }
 
-// Auto-Brightness: Sensor auslesen und Helligkeit anpassen
-uint16_t readLightSensor() {
-  // Mehrere Messungen für stabilere Werte (Mittelwertbildung reduziert Rauschen)
-  uint32_t sum = 0;
-  for (uint8_t i = 0; i < LIGHT_SENSOR_SAMPLES; i++) {
-    sum += analogRead(LIGHT_SENSOR_PIN);
-    delay(LIGHT_SENSOR_SAMPLE_DELAY);
-  }
-  return sum / LIGHT_SENSOR_SAMPLES;
+void persistMqttToStorage() {
+  EEPROM.write(EEPROM_MAGIC_ADDR, EEPROM_MAGIC);
+  EEPROM.write(EEPROM_MQTT_ENABLED_ADDR, mqttEnabled ? 1 : 0);
+  writeStringToEEPROM(EEPROM_MQTT_SERVER_ADDR, mqttServer, 64);
+  EEPROM.put(EEPROM_MQTT_PORT_ADDR, mqttPort);
+  writeStringToEEPROM(EEPROM_MQTT_USER_ADDR, mqttUser, 32);
+  writeStringToEEPROM(EEPROM_MQTT_PASSWORD_ADDR, mqttPassword, 32);
+  writeStringToEEPROM(EEPROM_MQTT_TOPIC_ADDR, mqttPresenceTopic, 64);
+  EEPROM.put(EEPROM_PRESENCE_TIMEOUT_ADDR, presenceTimeout);
+  EEPROM.commit();
 }
 
-// Gleitender Durchschnitt über die letzten N Sensorwerte (reduziert TV-Flackern)
-uint16_t getSmoothedSensorValue(uint16_t newValue) {
-  // Neuen Wert in Ringpuffer speichern
-  sensorHistory[sensorHistoryIndex] = newValue;
-  sensorHistoryIndex = (sensorHistoryIndex + 1) % SENSOR_HISTORY_SIZE;
+// VERBESSERT: Non-blocking Sensor-Sampling (verhindert Watchdog-Resets)
+// Startet einen neuen Sample-Zyklus
+void startLightSensorSampling() {
+  sensorSampleCount = 0;
+  sensorSampleSum = 0;
+  sensorSamplingInProgress = true;
+  lastSensorSample = millis();
+}
 
-  if (!sensorHistoryFilled && sensorHistoryIndex == 0) {
-    sensorHistoryFilled = true;
+// Nimmt ein einzelnes Sample, gibt true zurück wenn Sampling abgeschlossen
+bool processLightSensorSample() {
+  if (!sensorSamplingInProgress) {
+    return false;
   }
 
-  // Durchschnitt berechnen
-  uint32_t sum = 0;
-  uint8_t count = sensorHistoryFilled ? SENSOR_HISTORY_SIZE : sensorHistoryIndex;
+  unsigned long now = millis();
+  if (now - lastSensorSample >= LIGHT_SENSOR_SAMPLE_DELAY) {
+    sensorSampleSum += analogRead(LIGHT_SENSOR_PIN);
+    sensorSampleCount++;
+    lastSensorSample = now;
 
-  if (count == 0) {
-    return newValue; // Fallback beim ersten Aufruf
+    if (sensorSampleCount >= LIGHT_SENSOR_SAMPLES) {
+      sensorSamplingInProgress = false;
+      return true; // Sampling abgeschlossen
+    }
+  }
+  return false; // Noch nicht fertig
+}
+
+// Gibt den gemittelten Sensorwert zurück
+uint16_t getLightSensorResult() {
+  if (sensorSampleCount == 0) return 0;
+  return sensorSampleSum / sensorSampleCount;
+}
+
+// VERBESSERT: Exponential Moving Average (sanfter als Simple Moving Average)
+float applyEMA(float newValue) {
+  if (!emaInitialized) {
+    emaSensorValue = newValue;
+    emaInitialized = true;
+    return newValue;
   }
 
-  for (uint8_t i = 0; i < count; i++) {
-    sum += sensorHistory[i];
-  }
-
-  return sum / count;
+  // EMA Formel: EMA_new = alpha * value + (1 - alpha) * EMA_old
+  emaSensorValue = EMA_ALPHA * newValue + (1.0 - EMA_ALPHA) * emaSensorValue;
+  return emaSensorValue;
 }
 
 void updateAutoBrightness() {
-  if (!autoBrightnessEnabled) {
+  if (!autoBrightnessEnabled || !displayEnabled) {
     return;
   }
 
-  // Sensor auslesen und durch gleitenden Durchschnitt glätten (gegen TV-Flackern)
-  uint16_t rawSensorValue = readLightSensor();
-  uint16_t smoothedSensorValue = getSmoothedSensorValue(rawSensorValue);
+  // Sampling-Prozess verwalten
+  if (!sensorSamplingInProgress) {
+    startLightSensorSampling();
+    return;
+  }
+
+  // Sample verarbeiten (non-blocking)
+  if (!processLightSensorSample()) {
+    return; // Noch nicht fertig
+  }
+
+  // Alle Samples gesammelt, jetzt auswerten
+  uint16_t rawSensorValue = getLightSensorResult();
+  float smoothedSensorValue = applyEMA(rawSensorValue);
 
   // Map Sensorwert (sensorMin..sensorMax) auf Helligkeit (minBrightness..maxBrightness)
   uint16_t newBrightness;
@@ -184,15 +281,126 @@ void updateAutoBrightness() {
     newBrightness = maxBrightness;
   } else {
     // Lineare Interpolation zwischen Min und Max
-    newBrightness = map(smoothedSensorValue, sensorMin, sensorMax, minBrightness, maxBrightness);
+    newBrightness = map((uint16_t)smoothedSensorValue, sensorMin, sensorMax, minBrightness, maxBrightness);
   }
 
   // Nur aktualisieren wenn sich die Helligkeit signifikant ändert (Hysterese verhindert Flackern)
   if (abs((int)newBrightness - (int)brightness) > BRIGHTNESS_CHANGE_THRESHOLD) {
     brightness = newBrightness;
     analogWrite(PIN_ENABLE, 1023 - brightness);
-    Serial.printf("Auto-Brightness: Raw=%d, Smoothed=%d -> Brightness=%d\n",
+    Serial.printf("Auto-Brightness: Raw=%d, EMA=%.1f -> Brightness=%d\n",
                   rawSensorValue, smoothedSensorValue, brightness);
+  }
+}
+
+// MQTT Callback für eingehende Nachrichten
+void mqttCallback(char* topic, byte* payload, unsigned int length) {
+  // Payload zu String konvertieren
+  String message = "";
+  for (unsigned int i = 0; i < length; i++) {
+    message += (char)payload[i];
+  }
+
+  Serial.printf("MQTT Message received on topic %s: %s\n", topic, message.c_str());
+
+  // Präsenz-Status auswerten
+  if (String(topic) == mqttPresenceTopic) {
+    bool newPresence = false;
+
+    // Verschiedene Payload-Formate unterstützen:
+    // 1. Einfache Werte: "true", "false", "1", "0", "occupied"
+    // 2. JSON (Aqara FP2): {"presence":true} oder {"occupancy":true}
+
+    message.toLowerCase();
+    message.trim();
+
+    // Einfache Werte prüfen
+    if (message == "true" || message == "1" || message == "occupied") {
+      newPresence = true;
+    }
+    // JSON-Parsing (einfach, ohne Bibliothek)
+    else if (message.indexOf("\"presence\"") >= 0 || message.indexOf("\"occupancy\"") >= 0) {
+      // Suche nach "presence":true oder "occupancy":true in JSON
+      int truePos = message.indexOf(":true");
+      int falsePos = message.indexOf(":false");
+
+      if (truePos > 0) {
+        // Prüfe ob "true" nach "presence" oder "occupancy" kommt
+        int presencePos = message.indexOf("\"presence\"");
+        int occupancyPos = message.indexOf("\"occupancy\"");
+
+        if ((presencePos >= 0 && truePos > presencePos) ||
+            (occupancyPos >= 0 && truePos > occupancyPos)) {
+          newPresence = true;
+        }
+      }
+    }
+
+    if (newPresence != presenceDetected) {
+      presenceDetected = newPresence;
+      Serial.printf("Presence changed: %s\n", presenceDetected ? "DETECTED" : "NOT DETECTED");
+    }
+
+    if (presenceDetected) {
+      lastPresenceTime = millis();
+      if (!displayEnabled) {
+        displayEnabled = true;
+        Serial.println("Display ENABLED by presence detection");
+      }
+    }
+  }
+}
+
+// MQTT Verbindung aufbauen/wiederherstellen
+bool reconnectMQTT() {
+  if (!mqttEnabled || mqttServer.length() == 0) {
+    return false;
+  }
+
+  if (mqttClient.connected()) {
+    return true;
+  }
+
+  Serial.printf("Attempting MQTT connection to %s:%d...\n", mqttServer.c_str(), mqttPort);
+
+  // Client-ID generieren
+  String clientId = "IkeaClock-" + String(ESP.getChipId(), HEX);
+
+  bool connected = false;
+  if (mqttUser.length() > 0) {
+    connected = mqttClient.connect(clientId.c_str(), mqttUser.c_str(), mqttPassword.c_str());
+  } else {
+    connected = mqttClient.connect(clientId.c_str());
+  }
+
+  if (connected) {
+    Serial.println("MQTT connected!");
+    // Topic abonnieren
+    if (mqttPresenceTopic.length() > 0) {
+      mqttClient.subscribe(mqttPresenceTopic.c_str());
+      Serial.printf("Subscribed to topic: %s\n", mqttPresenceTopic.c_str());
+    }
+    return true;
+  } else {
+    Serial.printf("MQTT connection failed, rc=%d\n", mqttClient.state());
+    return false;
+  }
+}
+
+// Präsenz-Timeout prüfen und Display entsprechend steuern
+void updatePresenceTimeout() {
+  if (!mqttEnabled || !presenceDetected) {
+    return;
+  }
+
+  unsigned long timeSincePresence = millis() - lastPresenceTime;
+
+  if (displayEnabled && timeSincePresence > presenceTimeout) {
+    displayEnabled = false;
+    Serial.printf("Display DISABLED after %lu ms timeout\n", timeSincePresence);
+
+    // Display ausschalten (Helligkeit auf 0)
+    analogWrite(PIN_ENABLE, 1023);
   }
 }
 
@@ -220,7 +428,15 @@ void handleStatus() {
                 ",\"maxBrightness\":" + String(maxBrightness) +
                 ",\"sensorMin\":" + String(sensorMin) +
                 ",\"sensorMax\":" + String(sensorMax) +
-                ",\"sensorValue\":" + String(sensorValue) + "}";
+                ",\"sensorValue\":" + String(sensorValue) +
+                ",\"mqttEnabled\":" + (mqttEnabled ? "true" : "false") +
+                ",\"mqttConnected\":" + (mqttClient.connected() ? "true" : "false") +
+                ",\"mqttServer\":\"" + mqttServer + "\"" +
+                ",\"mqttPort\":" + String(mqttPort) +
+                ",\"mqttTopic\":\"" + mqttPresenceTopic + "\"" +
+                ",\"presenceDetected\":" + (presenceDetected ? "true" : "false") +
+                ",\"displayEnabled\":" + (displayEnabled ? "true" : "false") +
+                ",\"presenceTimeout\":" + String(presenceTimeout) + "}";
   server.send(200, "application/json", json);
 }
 
@@ -285,6 +501,49 @@ void handleSetAutoBrightness() {
                 ",\"maxBrightness\":" + String(maxBrightness) +
                 ",\"sensorMin\":" + String(sensorMin) +
                 ",\"sensorMax\":" + String(sensorMax) + "}";
+  server.send(200, "application/json", json);
+}
+
+void handleSetMqtt() {
+  // MQTT-Konfiguration setzen
+  if (server.hasArg("enabled")) {
+    String val = server.arg("enabled");
+    mqttEnabled = (val == "true" || val == "1");
+  }
+  if (server.hasArg("server")) {
+    mqttServer = server.arg("server");
+  }
+  if (server.hasArg("port")) {
+    mqttPort = constrain(server.arg("port").toInt(), 1, 65535);
+  }
+  if (server.hasArg("user")) {
+    mqttUser = server.arg("user");
+  }
+  if (server.hasArg("password")) {
+    mqttPassword = server.arg("password");
+  }
+  if (server.hasArg("topic")) {
+    mqttPresenceTopic = server.arg("topic");
+  }
+  if (server.hasArg("timeout")) {
+    presenceTimeout = constrain(server.arg("timeout").toInt(), 1000, 3600000); // 1s bis 1h
+  }
+
+  persistMqttToStorage();
+
+  // MQTT neu konfigurieren wenn aktiviert
+  if (mqttEnabled && mqttServer.length() > 0) {
+    mqttClient.disconnect();
+    mqttClient.setServer(mqttServer.c_str(), mqttPort);
+    mqttClient.setCallback(mqttCallback);
+    Serial.println("MQTT configuration updated, will reconnect...");
+  }
+
+  String json = String("{\"mqttEnabled\":") + (mqttEnabled ? "true" : "false") +
+                ",\"mqttServer\":\"" + mqttServer + "\"" +
+                ",\"mqttPort\":" + String(mqttPort) +
+                ",\"mqttTopic\":\"" + mqttPresenceTopic + "\"" +
+                ",\"presenceTimeout\":" + String(presenceTimeout) + "}";
   server.send(200, "application/json", json);
 }
 
@@ -434,6 +693,7 @@ void setup() {
   server.on("/api/setTimezone", handleSetTimezone);
   server.on("/api/setBrightness", handleSetBrightness);
   server.on("/api/setAutoBrightness", handleSetAutoBrightness);
+  server.on("/api/setMqtt", handleSetMqtt);
   server.on("/effect/snake", []() { selectEffect(0); });
   server.on("/effect/clock", []() { selectEffect(1); });
   server.on("/effect/rain", []() { selectEffect(2); });
@@ -460,6 +720,14 @@ void setup() {
     Serial.println("Web server not started because WiFi is not connected.");
   }
 
+  // MQTT initialisieren falls konfiguriert
+  if (mqttEnabled && mqttServer.length() > 0) {
+    mqttClient.setServer(mqttServer.c_str(), mqttPort);
+    mqttClient.setCallback(mqttCallback);
+    Serial.printf("MQTT enabled, server: %s:%d, topic: %s\n",
+                  mqttServer.c_str(), mqttPort, mqttPresenceTopic.c_str());
+  }
+
   applyEffect(currentEffectIndex);
 }
 
@@ -469,9 +737,16 @@ void loop() {
   static unsigned long lastWiFiCheck = 0;
   static unsigned long lastStatusPrint = 0;
   static unsigned long lastBrightnessUpdate = 0;
+  static unsigned long lastMqttReconnect = 0;
+  static unsigned long lastPresenceCheck = 0;
 
   server.handleClient();
   yield();
+
+  // MQTT Loop (muss regelmäßig aufgerufen werden)
+  if (mqttEnabled) {
+    mqttClient.loop();
+  }
 
   if (millis() - lastWiFiCheck > 30000) {
     if (WiFi.status() != WL_CONNECTED) {
@@ -494,6 +769,20 @@ void loop() {
     ntpConfigured = true;
   }
 
+  // MQTT Reconnection (alle 10 Sekunden versuchen falls nicht verbunden)
+  if (mqttEnabled && millis() - lastMqttReconnect > 10000) {
+    if (!mqttClient.connected() && WiFi.status() == WL_CONNECTED) {
+      reconnectMQTT();
+    }
+    lastMqttReconnect = millis();
+  }
+
+  // Präsenz-Timeout prüfen (alle 2 Sekunden)
+  if (mqttEnabled && millis() - lastPresenceCheck > 2000) {
+    updatePresenceTimeout();
+    lastPresenceCheck = millis();
+  }
+
   if (millis() - lastButtonCheck > 50) {
     static unsigned long lastPress = 0;
     if (digitalRead(BUTTON_PIN) == LOW && millis() - lastPress > 300) {
@@ -503,23 +792,37 @@ void loop() {
     lastButtonCheck = millis();
   }
 
+  // Frame nur zeichnen wenn Display aktiviert ist
   if (millis() - lastFrameUpdate > 50) {
-    uint8_t frame[32];
-    clearFrame(frame, sizeof(frame));
-    currentEffect->draw(frame);
-    shiftOutBuffer(frame, sizeof(frame));
+    if (displayEnabled) {
+      uint8_t frame[32];
+      clearFrame(frame, sizeof(frame));
+      currentEffect->draw(frame);
+      shiftOutBuffer(frame, sizeof(frame));
+    }
     lastFrameUpdate = millis();
   }
 
   if (millis() - lastStatusPrint > 60000) {
-    Serial.printf("Uptime: %lus, Free heap: %d bytes\n",
-                  millis() / 1000, ESP.getFreeHeap());
+    Serial.printf("Uptime: %lus, Free heap: %d bytes, Display: %s, Presence: %s\n",
+                  millis() / 1000, ESP.getFreeHeap(),
+                  displayEnabled ? "ON" : "OFF",
+                  presenceDetected ? "DETECTED" : "NOT DETECTED");
     lastStatusPrint = millis();
   }
 
-  // Auto-Brightness regelmäßig aktualisieren
+  // VERBESSERT: Auto-Brightness mit non-blocking Sampling
+  // Wird jetzt in jedem Loop-Durchlauf verarbeitet statt blockierend
+  if (autoBrightnessEnabled && displayEnabled) {
+    // processLightSensorSample() ist non-blocking und gibt false zurück solange sampling läuft
+    processLightSensorSample();
+  }
+
+  // Nur einen neuen Sample-Zyklus starten wenn der vorherige abgeschlossen ist
   if (millis() - lastBrightnessUpdate > AUTO_BRIGHTNESS_UPDATE_INTERVAL) {
-    updateAutoBrightness();
+    if (!sensorSamplingInProgress) {
+      updateAutoBrightness();
+    }
     lastBrightnessUpdate = millis();
   }
 
