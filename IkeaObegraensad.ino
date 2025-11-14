@@ -56,6 +56,7 @@ uint16_t sensorMin = 5;         // Minimaler Sensorwert (dunkel) - LDR-spezifisc
 uint16_t sensorMax = 450;       // Maximaler Sensorwert (hell) - LDR-spezifisch
 const uint8_t LIGHT_SENSOR_PIN = A0; // Analoger Pin für Phototransistor
 
+
 // Auto-Brightness Konstanten (optimiert gegen Watchdog-Resets)
 const uint8_t LIGHT_SENSOR_SAMPLES = 5;     // Reduziert von 10 auf 5 für schnellere Messung
 const uint8_t LIGHT_SENSOR_SAMPLE_DELAY = 10; // Reduziert von 20ms auf 10ms
@@ -75,6 +76,7 @@ bool sensorSamplingInProgress = false;
 
 const uint8_t EEPROM_MAGIC = 0xB8;  // Geändert von 0xB7 wegen neuem Layout
 const uint16_t EEPROM_SIZE = 256;   // Erweitert für MQTT-Konfiguration
+
 const uint16_t EEPROM_MAGIC_ADDR = 0;
 const uint16_t EEPROM_BRIGHTNESS_ADDR = 1;
 const uint16_t EEPROM_AUTO_BRIGHTNESS_ADDR = 3;    // bool (1 byte)
