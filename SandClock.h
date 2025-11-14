@@ -20,7 +20,6 @@ namespace SandClockEffect {
   extern uint8_t lastMinute;
   extern uint8_t animationState; // 0=static, 1=falling, 2=settling
   extern uint8_t animationTimer;
-  extern bool sandEffectEnabled;
   
   void init();
   void draw(uint8_t *frame);
@@ -38,7 +37,6 @@ inline uint8_t SandClockEffect::staticFrame[32];
 inline uint8_t SandClockEffect::lastMinute = 255;
 inline uint8_t SandClockEffect::animationState = 0;
 inline uint8_t SandClockEffect::animationTimer = 0;
-inline bool SandClockEffect::sandEffectEnabled = true;
 
 inline void SandClockEffect::init() {
   memset(grains, 0, sizeof(grains));
@@ -211,9 +209,9 @@ inline void SandClockEffect::draw(uint8_t *frame) {
   time_t now = time(nullptr);
   struct tm *t = localtime(&now);
   uint8_t currentMinute = t ? t->tm_min : 0;
-  
+
   // Prüfe ob sich die Minute geändert hat
-  if (sandEffectEnabled && lastMinute != 255 && lastMinute != currentMinute && animationState == 0) {
+  if (lastMinute != 255 && lastMinute != currentMinute && animationState == 0) {
     startSandTransition();
   }
   lastMinute = currentMinute;
@@ -241,12 +239,6 @@ inline void SandClockEffect::draw(uint8_t *frame) {
     
     animationTimer++;
   }
-}
-
-// Globale Funktion zum Umschalten des Sand-Effekts
-inline void toggleSandEffect() {
-  SandClockEffect::sandEffectEnabled = !SandClockEffect::sandEffectEnabled;
-  Serial.printf("Sand effect %s\n", SandClockEffect::sandEffectEnabled ? "enabled" : "disabled");
 }
 
 inline Effect sandClockEffect = {SandClockEffect::init, SandClockEffect::draw, "sandclock"};
