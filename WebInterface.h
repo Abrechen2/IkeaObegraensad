@@ -42,7 +42,8 @@ const char WEB_INTERFACE_HTML[] PROGMEM = R"rawl(
     }
 
     main {
-      width: min(460px, 100%);
+      width: min(900px, 100%);
+      max-width: 95vw;
       background: var(--card-bg);
       border-radius: var(--radius);
       box-shadow: var(--shadow);
@@ -400,7 +401,7 @@ const char WEB_INTERFACE_HTML[] PROGMEM = R"rawl(
     </section>
 
     <footer>
-      <span>Statusaktualisierung alle 2&nbsp;Sekunden</span>
+      <span>Status-Werte werden alle 2&nbsp;Sekunden aktualisiert &mdash; Einstellungen bleiben editierbar</span>
     </footer>
   </main>
 
@@ -503,54 +504,84 @@ const char WEB_INTERFACE_HTML[] PROGMEM = R"rawl(
       return response.json();
     }
 
-    async function refreshStatus() {
+    // Lädt Settings einmalig beim Seitenaufruf
+    async function loadSettings() {
       try {
         const data = await fetchJson('/api/status');
-        timeEl.textContent = data.time;
-        currentEffectEl.textContent = prettifyEffect(data.effect);
+
+        // Timezone Select
+        tzSelect.value = data.tz || 'CET-1CEST,M3.5.0,M10.5.0/3';
         currentTimezoneEl.textContent = data.tz || '-';
 
-        // Timezone Select aktualisieren
-        if (document.activeElement !== tzSelect) {
-          tzSelect.value = data.tz || 'CET-1CEST,M3.5.0,M10.5.0/3';
-        }
-
-        updateBrightnessUI(data.brightness);
+        // Effect Select
         if ([...effectSelect.options].some(option => option.value === data.effect)) {
           effectSelect.value = data.effect;
         }
+
+        // Auto-Brightness Settings (einmalig laden)
+        if (data.autoBrightness !== undefined) {
+          autoEnabled.checked = data.autoBrightness;
+        }
+        if (data.minBrightness !== undefined) {
+          syncSliderInput(minBrightnessSlider, minBrightnessInput, data.minBrightness);
+        }
+        if (data.maxBrightness !== undefined) {
+          syncSliderInput(maxBrightnessSlider, maxBrightnessInput, data.maxBrightness);
+        }
+        if (data.sensorMin !== undefined) {
+          syncSliderInput(sensorMinSlider, sensorMinInput, data.sensorMin);
+        }
+        if (data.sensorMax !== undefined) {
+          syncSliderInput(sensorMaxSlider, sensorMaxInput, data.sensorMax);
+        }
+
+        // MQTT Settings (einmalig laden)
+        if (data.mqttEnabled !== undefined) {
+          mqttEnabledCheckbox.checked = data.mqttEnabled;
+        }
+        if (data.mqttServer !== undefined) {
+          mqttServerInput.value = data.mqttServer;
+        }
+        if (data.mqttPort !== undefined) {
+          mqttPortInput.value = data.mqttPort;
+        }
+        if (data.mqttTopic !== undefined) {
+          mqttTopicInput.value = data.mqttTopic;
+        }
+        if (data.presenceTimeout !== undefined) {
+          const timeoutSeconds = Math.floor(data.presenceTimeout / 1000);
+          syncSliderInput(presenceTimeoutSlider, presenceTimeoutInput, timeoutSeconds);
+        }
+      } catch (error) {
+        showStatus('Settings konnte nicht geladen werden. ' + error.message, 'error');
+      }
+    }
+
+    // Aktualisiert nur Status-Werte (wird alle 2 Sekunden aufgerufen)
+    async function refreshStatus() {
+      try {
+        const data = await fetchJson('/api/status');
+
+        // Nur Status-Werte aktualisieren (keine Input-Felder)
+        timeEl.textContent = data.time;
+        currentEffectEl.textContent = prettifyEffect(data.effect);
+
+        updateBrightnessUI(data.brightness);
+
         if (data.sandEnabled !== undefined) {
           sandStatus.textContent = data.sandEnabled ? 'An' : 'Aus';
         }
 
-        // Auto-Brightness Status
+        // Auto-Brightness Status (nur Sensor-Wert und Status-Anzeige)
         if (data.sensorValue !== undefined) {
           sensorValueEl.textContent = data.sensorValue;
         }
         if (data.autoBrightness !== undefined) {
           autoStatusEl.textContent = data.autoBrightness ? 'An' : 'Aus';
-          if (!editingFields.has('autoEnabled')) {
-            autoEnabled.checked = data.autoBrightness;
-          }
-        }
-        if (data.minBrightness !== undefined) {
-          safeUpdate('minBrightness', minBrightnessSlider, minBrightnessInput, data.minBrightness);
-        }
-        if (data.maxBrightness !== undefined) {
-          safeUpdate('maxBrightness', maxBrightnessSlider, maxBrightnessInput, data.maxBrightness);
-        }
-        if (data.sensorMin !== undefined) {
-          safeUpdate('sensorMin', sensorMinSlider, sensorMinInput, data.sensorMin);
-        }
-        if (data.sensorMax !== undefined) {
-          safeUpdate('sensorMax', sensorMaxSlider, sensorMaxInput, data.sensorMax);
         }
 
-        // MQTT Status
-        if (data.mqttEnabled !== undefined) {
-          if (!editingFields.has('mqttEnabled')) {
-            mqttEnabledCheckbox.checked = data.mqttEnabled;
-          }
+        // MQTT Status (nur Verbindungs- und Präsenz-Status)
+        if (data.mqttConnected !== undefined) {
           if (data.mqttConnected) {
             mqttStatusEl.textContent = 'Verbunden';
             mqttStatusEl.style.color = '#5bc0eb';
@@ -562,26 +593,15 @@ const char WEB_INTERFACE_HTML[] PROGMEM = R"rawl(
             mqttStatusEl.style.color = '';
           }
         }
-        if (data.mqttServer !== undefined && !editingFields.has('mqttServer')) {
-          mqttServerInput.value = data.mqttServer;
-        }
-        if (data.mqttPort !== undefined && !editingFields.has('mqttPort')) {
-          mqttPortInput.value = data.mqttPort;
-        }
-        if (data.mqttTopic !== undefined && !editingFields.has('mqttTopic')) {
-          mqttTopicInput.value = data.mqttTopic;
-        }
+
         if (data.presenceDetected !== undefined) {
           presenceStatusEl.textContent = data.presenceDetected ? 'Erkannt' : 'Nicht erkannt';
           presenceStatusEl.style.color = data.presenceDetected ? '#5bc0eb' : '';
         }
+
         if (data.displayEnabled !== undefined) {
           displayStatusEl.textContent = data.displayEnabled ? 'An' : 'Aus';
           displayStatusEl.style.color = data.displayEnabled ? '' : '#ff7b7b';
-        }
-        if (data.presenceTimeout !== undefined) {
-          const timeoutSeconds = Math.floor(data.presenceTimeout / 1000);
-          safeUpdate('presenceTimeout', presenceTimeoutSlider, presenceTimeoutInput, timeoutSeconds);
         }
 
         showStatus('');
@@ -802,6 +822,8 @@ const char WEB_INTERFACE_HTML[] PROGMEM = R"rawl(
       saveMqtt();
     });
 
+    // Initiales Laden: Settings einmalig laden, dann nur noch Status aktualisieren
+    loadSettings();
     refreshStatus();
     setInterval(refreshStatus, 2000);
   </script>
