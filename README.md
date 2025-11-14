@@ -63,8 +63,10 @@ For Zigbee2MQTT with Aqara FP2/FP1 presence sensor:
 
 **Supported Payload Formats:**
 The code automatically detects and supports multiple formats:
-- Simple values: `true`, `false`, `1`, `0`, `occupied`
-- JSON (Aqara FP2): `{"presence":true}`, `{"occupancy":true}`
+- Simple values: `true`, `false`, `1`, `0`, `occupied`, `unoccupied`
+- JSON (Aqara FP2): `{"presence":true}`, `{"presence":false}`, `{"occupancy":true}`, `{"occupancy":false}`
+
+Note: The display automatically turns ON when MQTT is disabled to ensure normal operation.
 
 ### Stability Improvements
 - **Non-blocking operations**: All sensor readings and network operations are non-blocking to prevent watchdog timer resets

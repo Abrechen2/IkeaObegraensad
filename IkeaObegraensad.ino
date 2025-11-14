@@ -318,6 +318,9 @@ void mqttCallback(char* topic, byte* payload, unsigned int length) {
     if (message == "true" || message == "1" || message == "occupied") {
       newPresence = true;
     }
+    else if (message == "false" || message == "0" || message == "unoccupied") {
+      newPresence = false;
+    }
     // JSON-Parsing (einfach, ohne Bibliothek)
     else if (message.indexOf("\"presence\"") >= 0 || message.indexOf("\"occupancy\"") >= 0) {
       // Suche nach "presence":true oder "occupancy":true in JSON
@@ -389,15 +392,21 @@ bool reconnectMQTT() {
 
 // Präsenz-Timeout prüfen und Display entsprechend steuern
 void updatePresenceTimeout() {
-  if (!mqttEnabled || !presenceDetected) {
+  if (!mqttEnabled) {
     return;
   }
 
+  // Wenn Präsenz erkannt: Display ist bereits an, nichts zu tun
+  if (presenceDetected) {
+    return;
+  }
+
+  // Keine Präsenz: Prüfe ob Timeout abgelaufen und Display noch an
   unsigned long timeSincePresence = millis() - lastPresenceTime;
 
   if (displayEnabled && timeSincePresence > presenceTimeout) {
     displayEnabled = false;
-    Serial.printf("Display DISABLED after %lu ms timeout\n", timeSincePresence);
+    Serial.printf("Display DISABLED after %lu ms timeout (no presence)\n", timeSincePresence);
 
     // Display ausschalten (Helligkeit auf 0)
     analogWrite(PIN_ENABLE, 1023);
@@ -508,7 +517,16 @@ void handleSetMqtt() {
   // MQTT-Konfiguration setzen
   if (server.hasArg("enabled")) {
     String val = server.arg("enabled");
-    mqttEnabled = (val == "true" || val == "1");
+    bool newMqttEnabled = (val == "true" || val == "1");
+
+    // Wenn MQTT deaktiviert wird, Display immer einschalten
+    if (mqttEnabled && !newMqttEnabled) {
+      displayEnabled = true;
+      analogWrite(PIN_ENABLE, 1023 - brightness);
+      Serial.println("MQTT disabled, display forced ON");
+    }
+
+    mqttEnabled = newMqttEnabled;
   }
   if (server.hasArg("server")) {
     mqttServer = server.arg("server");
@@ -726,6 +744,10 @@ void setup() {
     mqttClient.setCallback(mqttCallback);
     Serial.printf("MQTT enabled, server: %s:%d, topic: %s\n",
                   mqttServer.c_str(), mqttPort, mqttPresenceTopic.c_str());
+  } else {
+    // Wenn MQTT deaktiviert, Display immer an
+    displayEnabled = true;
+    Serial.println("MQTT disabled, display always ON");
   }
 
   applyEffect(currentEffectIndex);
