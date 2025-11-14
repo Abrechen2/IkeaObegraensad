@@ -315,10 +315,10 @@ void mqttCallback(char* topic, byte* payload, unsigned int length) {
     message.trim();
 
     // Einfache Werte prüfen
-    if (message == "true" || message == "1" || message == "occupied") {
+    if (message == "true" || message == "1" || message == "occupied" || message == "on") {
       newPresence = true;
     }
-    else if (message == "false" || message == "0" || message == "unoccupied") {
+    else if (message == "false" || message == "0" || message == "unoccupied" || message == "off") {
       newPresence = false;
     }
     // JSON-Parsing (einfach, ohne Bibliothek)
