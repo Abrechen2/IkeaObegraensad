@@ -34,11 +34,11 @@ bool ntpConfigured = false;
 // MQTT Configuration for Aqara Presence Sensor
 WiFiClient espClient;
 PubSubClient mqttClient(espClient);
-String mqttServer = "";  // MQTT Broker IP (wird über Web-UI konfiguriert)
-uint16_t mqttPort = 1883;
+String mqttServer = "192.168.178.36" ;  // MQTT Broker IP (wird über Web-UI konfiguriert)
+uint16_t mqttPort = 403;
 String mqttUser = "";    // Optional
 String mqttPassword = ""; // Optional
-String mqttPresenceTopic = "zigbee2mqtt/aqara_fp2"; // Topic für Präsenzmelder (FP2 sendet JSON an Haupt-Topic)
+String mqttPresenceTopic = "Sonstige/Präsenz_Wz"; // Topic für Präsenzmelder (FP2 sendet JSON an Haupt-Topic)
 bool mqttEnabled = false;
 bool presenceDetected = false;
 unsigned long lastPresenceTime = 0;
