@@ -842,9 +842,7 @@ void loop() {
 
   // Nur einen neuen Sample-Zyklus starten wenn der vorherige abgeschlossen ist
   if (millis() - lastBrightnessUpdate > AUTO_BRIGHTNESS_UPDATE_INTERVAL) {
-    if (!sensorSamplingInProgress) {
-      updateAutoBrightness();
-    }
+    updateAutoBrightness();
     lastBrightnessUpdate = millis();
   }
 
