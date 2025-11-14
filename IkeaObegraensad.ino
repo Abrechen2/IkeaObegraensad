@@ -431,7 +431,6 @@ void handleStatus() {
                 "\",\"effect\":\"" + currentEffect->name +
                 "\",\"tz\":\"" + tzString +
                 "\",\"brightness\":" + String(brightness) +
-                ",\"sandEnabled\":" + (SandClockEffect::sandEffectEnabled ? "true" : "false") +
                 ",\"autoBrightness\":" + (autoBrightnessEnabled ? "true" : "false") +
                 ",\"minBrightness\":" + String(minBrightness) +
                 ",\"maxBrightness\":" + String(maxBrightness) +
@@ -464,6 +463,13 @@ void handleSetBrightness() {
   if (server.hasArg("b")) {
     brightness = constrain(server.arg("b").toInt(), 0, 1023);
     analogWrite(PIN_ENABLE, 1023 - brightness);
+
+    // Auto-Brightness deaktivieren bei manueller Helligkeitsänderung
+    if (autoBrightnessEnabled) {
+      autoBrightnessEnabled = false;
+      Serial.println("Auto-Brightness disabled due to manual brightness change");
+    }
+
     persistBrightnessToStorage();
     server.send(200, "application/json", String("{\"brightness\":") + brightness + "}");
   } else {
@@ -725,12 +731,6 @@ void setup() {
   server.on("/effect/plasma", []() { selectEffect(10); });
   server.on("/effect/ripple", []() { selectEffect(11); });
   server.on("/effect/sandclock", []() { selectEffect(12); });
-  server.on("/api/toggleSand", []() {
-    toggleSandEffect();
-    server.send(200, "application/json",
-                String("{\"sandEnabled\":") +
-                (SandClockEffect::sandEffectEnabled ? "true" : "false") + "}");
-  });
   if (wifiConnected) {
     server.begin();
     serverStarted = true;

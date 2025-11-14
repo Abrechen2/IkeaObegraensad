@@ -283,7 +283,6 @@ const char WEB_INTERFACE_HTML[] PROGMEM = R"rawl(
             <option value="ripple">Ripple</option>
             <option value="sandclock">Sand Clock</option>
           </select>
-          <button id="toggleSand" type="button">Sand-Effekt: <span id="sandStatus">An</span></button>
         </div>
         <div>
           <label for="tz">Zeitzone</label>
@@ -419,8 +418,6 @@ const char WEB_INTERFACE_HTML[] PROGMEM = R"rawl(
     const brightnessInput = document.getElementById('brightnessInput');
     const saveBrightnessButton = document.getElementById('saveBrightness');
     const statusMessage = document.getElementById('statusMessage');
-    const toggleSandButton = document.getElementById('toggleSand');
-    const sandStatus = document.getElementById('sandStatus');
 
     // Auto-Brightness Elemente
     const autoEnabled = document.getElementById('autoEnabled');
@@ -568,10 +565,6 @@ const char WEB_INTERFACE_HTML[] PROGMEM = R"rawl(
 
         updateBrightnessUI(data.brightness);
 
-        if (data.sandEnabled !== undefined) {
-          sandStatus.textContent = data.sandEnabled ? 'An' : 'Aus';
-        }
-
         // Auto-Brightness Status (nur Sensor-Wert und Status-Anzeige)
         if (data.sensorValue !== undefined) {
           sensorValueEl.textContent = data.sensorValue;
@@ -607,17 +600,6 @@ const char WEB_INTERFACE_HTML[] PROGMEM = R"rawl(
         showStatus('');
       } catch (error) {
         showStatus('Status konnte nicht geladen werden. ' + error.message, 'error');
-      }
-    }
-
-    async function toggleSandEffect() {
-      try {
-        const response = await fetch('/api/toggleSand');
-        const data = await response.json();
-        sandStatus.textContent = data.sandEnabled ? 'An' : 'Aus';
-        showStatus('Sand-Effekt ' + (data.sandEnabled ? 'aktiviert' : 'deaktiviert'));
-      } catch (error) {
-        showStatus('Fehler beim Umschalten', 'error');
       }
     }
 
@@ -723,8 +705,6 @@ const char WEB_INTERFACE_HTML[] PROGMEM = R"rawl(
     saveBrightnessButton.addEventListener('click', () => {
       saveBrightness(brightnessInput.value);
     });
-
-    toggleSandButton.addEventListener('click', toggleSandEffect);
 
     // Auto-Brightness Event Listeners
     // Min Brightness
