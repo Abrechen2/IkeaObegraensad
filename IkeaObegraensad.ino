@@ -258,39 +258,40 @@ void updateAutoBrightness() {
     return;
   }
 
-  // Sampling-Prozess verwalten
-  if (!sensorSamplingInProgress) {
-    startLightSensorSampling();
+  // Wenn Sampling noch läuft, nichts tun (wird in loop() verarbeitet)
+  if (sensorSamplingInProgress) {
     return;
   }
 
-  // Sample verarbeiten (non-blocking)
-  if (!processLightSensorSample()) {
-    return; // Noch nicht fertig
+  // BUGFIX: Erst die fertigen Samples auswerten, DANN neues Sampling starten
+  // Prüfe ob Daten zum Auswerten da sind
+  if (sensorSampleCount > 0) {
+    // Alle Samples gesammelt, jetzt auswerten
+    uint16_t rawSensorValue = getLightSensorResult();
+    float smoothedSensorValue = applyEMA(rawSensorValue);
+
+    // Map Sensorwert (sensorMin..sensorMax) auf Helligkeit (minBrightness..maxBrightness)
+    uint16_t newBrightness;
+    if (smoothedSensorValue <= sensorMin) {
+      newBrightness = minBrightness;
+    } else if (smoothedSensorValue >= sensorMax) {
+      newBrightness = maxBrightness;
+    } else {
+      // Lineare Interpolation zwischen Min und Max
+      newBrightness = map((uint16_t)smoothedSensorValue, sensorMin, sensorMax, minBrightness, maxBrightness);
+    }
+
+    // Nur aktualisieren wenn sich die Helligkeit signifikant ändert (Hysterese verhindert Flackern)
+    if (abs((int)newBrightness - (int)brightness) > BRIGHTNESS_CHANGE_THRESHOLD) {
+      brightness = newBrightness;
+      analogWrite(PIN_ENABLE, 1023 - brightness);
+      Serial.printf("Auto-Brightness: Raw=%d, EMA=%.1f -> Brightness=%d\n",
+                    rawSensorValue, smoothedSensorValue, brightness);
+    }
   }
 
-  // Alle Samples gesammelt, jetzt auswerten
-  uint16_t rawSensorValue = getLightSensorResult();
-  float smoothedSensorValue = applyEMA(rawSensorValue);
-
-  // Map Sensorwert (sensorMin..sensorMax) auf Helligkeit (minBrightness..maxBrightness)
-  uint16_t newBrightness;
-  if (smoothedSensorValue <= sensorMin) {
-    newBrightness = minBrightness;
-  } else if (smoothedSensorValue >= sensorMax) {
-    newBrightness = maxBrightness;
-  } else {
-    // Lineare Interpolation zwischen Min und Max
-    newBrightness = map((uint16_t)smoothedSensorValue, sensorMin, sensorMax, minBrightness, maxBrightness);
-  }
-
-  // Nur aktualisieren wenn sich die Helligkeit signifikant ändert (Hysterese verhindert Flackern)
-  if (abs((int)newBrightness - (int)brightness) > BRIGHTNESS_CHANGE_THRESHOLD) {
-    brightness = newBrightness;
-    analogWrite(PIN_ENABLE, 1023 - brightness);
-    Serial.printf("Auto-Brightness: Raw=%d, EMA=%.1f -> Brightness=%d\n",
-                  rawSensorValue, smoothedSensorValue, brightness);
-  }
+  // Neues Sampling für den nächsten Zyklus starten
+  startLightSensorSampling();
 }
 
 // MQTT Callback für eingehende Nachrichten
