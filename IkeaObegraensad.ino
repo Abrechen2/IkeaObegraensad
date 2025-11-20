@@ -272,21 +272,27 @@ void updateAutoBrightness() {
 
     // Map Sensorwert (sensorMin..sensorMax) auf Helligkeit (minBrightness..maxBrightness)
     uint16_t newBrightness;
+    bool atBoundary = false;  // Flag für Grenzbereiche
+
     if (smoothedSensorValue <= sensorMin) {
       newBrightness = minBrightness;
+      atBoundary = true;  // An unterer Grenze
     } else if (smoothedSensorValue >= sensorMax) {
       newBrightness = maxBrightness;
+      atBoundary = true;  // An oberer Grenze
     } else {
       // Lineare Interpolation zwischen Min und Max
       newBrightness = map((uint16_t)smoothedSensorValue, sensorMin, sensorMax, minBrightness, maxBrightness);
     }
 
-    // Nur aktualisieren wenn sich die Helligkeit signifikant ändert (Hysterese verhindert Flackern)
-    if (abs((int)newBrightness - (int)brightness) > BRIGHTNESS_CHANGE_THRESHOLD) {
+    // An Grenzen immer aktualisieren, sonst nur bei signifikanter Änderung (Hysterese)
+    // Hysterese verhindert Flackern im mittleren Bereich, sollte aber nicht Min/Max blockieren
+    if (atBoundary || abs((int)newBrightness - (int)brightness) > BRIGHTNESS_CHANGE_THRESHOLD) {
       brightness = newBrightness;
       analogWrite(PIN_ENABLE, 1023 - brightness);
-      Serial.printf("Auto-Brightness: Raw=%d, EMA=%.1f -> Brightness=%d\n",
-                    rawSensorValue, smoothedSensorValue, brightness);
+      Serial.printf("Auto-Brightness: Raw=%d, EMA=%.1f -> Brightness=%d%s\n",
+                    rawSensorValue, smoothedSensorValue, brightness,
+                    atBoundary ? " (boundary)" : "");
     }
   }
 
