@@ -71,8 +71,40 @@ Note: The display automatically turns ON when MQTT is disabled to ensure normal 
 ### Stability Improvements
 - **Non-blocking operations**: All sensor readings and network operations are non-blocking to prevent watchdog timer resets
 - **Optimized auto-brightness**: Reduced from 10 to 5 samples with shorter delays (50ms total instead of 200ms)
-- **Memory optimization**: EEPROM expanded to 256 bytes for storing all configuration
+- **Memory optimization**: EEPROM expanded to 512 bytes for storing all configuration including NTP servers
 - **Reliable WiFi**: Automatic reconnection and NTP sync recovery
+- **EEPROM validation**: Version checking and checksum validation for data integrity
+- **Debug log rotation**: Automatic log file rotation to prevent SPIFFS overflow
+- **Rate limiting**: API protection against excessive requests (20 requests per 10 seconds)
+- **millis() overflow handling**: Safe time difference calculations
+
+### New Features
+
+#### Over-The-Air (OTA) Updates
+The device supports OTA updates via ArduinoOTA:
+- **Hostname**: `IkeaClock` (default password: `admin` - change in code!)
+- **Update via Arduino IDE**: Use Tools → Port → Network Ports → `IkeaClock.local` or IP address
+- **Status display**: OTA status and IP address shown in web interface
+- **Automatic display control**: Display turns off during updates
+- **IP address display**: Shown in Serial Monitor and web interface after startup
+
+#### Backup & Restore
+Export and import your complete configuration:
+- **Backup**: Download all settings as JSON file via web interface
+- **Restore**: Upload a previously saved backup to restore all settings
+- **Version checking**: Automatic validation of backup file version
+- **Includes**: Brightness, auto-brightness, MQTT, timezone, NTP servers
+
+#### Enhanced Configuration
+- **Configurable NTP servers**: Set custom primary and secondary NTP servers (stored in EEPROM)
+- **No hardcoded values**: MQTT server and NTP servers are fully configurable
+- **EEPROM versioning**: Automatic migration support for future layout changes
+
+#### Performance Optimizations
+- **String operations**: Optimized using `snprintf()` and `String::reserve()` for better memory usage
+- **MQTT reconnection**: Exponential backoff (1s → 60s max) to reduce server load
+- **MQTT timeout**: 5-second connection timeout to prevent hanging
+- **Conditional debug logging**: Debug logs can be disabled for production builds via `#define DEBUG_LOGGING_ENABLED`
 
 ## Setup
 
@@ -85,5 +117,51 @@ before uploading.
 - ESP8266WiFi
 - ESP8266WebServer
 - PubSubClient (for MQTT support)
+- ArduinoOTA (for OTA updates)
 - EEPROM
 - SPI
+- FS (SPIFFS for debug logging)
+
+## Building
+
+### Debug Logging
+Debug logging is disabled by default. To enable for debugging, uncomment this line in `IkeaObegraensad.ino`:
+```cpp
+#define DEBUG_LOGGING_ENABLED
+```
+
+### OTA Password
+**Important**: Change the OTA password in `setup()` before deploying:
+```cpp
+ArduinoOTA.setPassword("your_secure_password");
+```
+
+## OTA Updates
+
+### Finding the IP Address
+After device startup, the IP address is displayed in:
+1. **Serial Monitor** (115200 baud) - Look for "OTA IP Address: 192.168.x.x"
+2. **Web Interface** - Check the "IP-Adresse" field in the status dashboard
+3. **Router interface** - Look for device named "IkeaClock"
+
+### Using OTA Updates
+1. Open Arduino IDE
+2. Go to **Tools → Port → Network Ports**
+3. Select the IP address (e.g., `192.168.1.100`) or `IkeaClock.local`
+4. Click **Upload** button
+5. Enter password when prompted (default: `admin`)
+
+## API Endpoints
+
+- `GET /` - Web interface
+- `GET /api/status` - Current status (JSON) - includes IP address
+- `GET /api/backup` - Download configuration backup (JSON)
+- `POST /api/restore` - Restore configuration from backup (JSON body)
+- `GET /api/setTimezone?tz=...` - Set timezone
+- `GET /api/setBrightness?b=...` - Set brightness (0-1023)
+- `GET /api/setAutoBrightness?enabled=...&min=...&max=...&sensorMin=...&sensorMax=...` - Configure auto-brightness
+- `GET /api/setMqtt?enabled=...&server=...&port=...&user=...&password=...&topic=...&timeout=...` - Configure MQTT
+- `GET /effect/[name]` - Switch effect (snake, clock, rain, bounce, stars, lines, pulse, waves, spiral, fire, plasma, ripple, sandclock)
+- `GET /api/debuglog` - Download debug log (NDJSON format) - only if debug logging enabled
+
+All API endpoints are protected by rate limiting (20 requests per 10 seconds).

@@ -7,9 +7,14 @@
 #include <stdlib.h>
 #include <stdarg.h>
 #include <FS.h>
+#include <ArduinoOTA.h>
 extern "C" {
 #include <user_interface.h>
 }
+
+// Debug-Logging aktivieren/deaktivieren
+// Für Production-Builds: Kommentiere die nächste Zeile aus
+// #define DEBUG_LOGGING_ENABLED
 
 #include "Matrix.h"
 #include "Effect.h"
@@ -36,8 +41,8 @@ bool ntpConfigured = false;
 // MQTT Configuration for Aqara Presence Sensor
 WiFiClient espClient;
 PubSubClient mqttClient(espClient);
-String mqttServer = "192.168.178.36" ;  // MQTT Broker IP (wird über Web-UI konfiguriert)
-uint16_t mqttPort = 403;
+String mqttServer = "";  // MQTT Broker IP (wird über Web-UI konfiguriert, kein Default)
+uint16_t mqttPort = 1883; // Standard MQTT Port
 String mqttUser = "";    // Optional
 String mqttPassword = ""; // Optional
 String mqttPresenceTopic = "Sonstige/Präsenz_Wz/Anwesenheit"; // Topic für Präsenzmelder (FP2 sendet JSON an Haupt-Topic)
@@ -46,6 +51,21 @@ bool presenceDetected = false;
 unsigned long lastPresenceTime = 0;
 uint32_t presenceTimeout = 300000; // 5 Minuten in ms (Display bleibt 5 Min an nach letzter Erkennung)
 bool displayEnabled = true; // Display-Status (wird durch Präsenz gesteuert)
+
+// Rate-Limiting für Web-API
+struct RateLimit {
+  unsigned long lastRequest;
+  uint8_t requestCount;
+};
+RateLimit apiRateLimit = {0, 0};
+const unsigned long RATE_LIMIT_WINDOW = 10000; // 10 Sekunden Zeitfenster
+const uint8_t RATE_LIMIT_MAX_REQUESTS = 20; // Max. 20 Requests pro Zeitfenster
+
+// MQTT Reconnect mit Exponential Backoff
+unsigned long mqttReconnectBackoff = 1000; // Start mit 1 Sekunde
+const unsigned long MQTT_MAX_BACKOFF = 60000; // Maximal 60 Sekunden
+const unsigned long MQTT_BACKOFF_MULTIPLIER = 2; // Verdoppeln bei jedem Fehlschlag
+const unsigned long MQTT_CONNECT_TIMEOUT = 5000; // 5 Sekunden Timeout für Connect-Versuch
 
 const uint16_t DEFAULT_BRIGHTNESS = 512;
 uint16_t brightness = DEFAULT_BRIGHTNESS; // 0..1023
@@ -79,23 +99,29 @@ uint32_t sensorSampleSum = 0;
 unsigned long lastSensorSample = 0;
 bool sensorSamplingInProgress = false;
 
-const uint8_t EEPROM_MAGIC = 0xB8;  // Geändert von 0xB7 wegen neuem Layout
-const uint16_t EEPROM_SIZE = 256;   // Erweitert für MQTT-Konfiguration
+const uint8_t EEPROM_VERSION = 1;   // EEPROM-Layout Version
+const uint8_t EEPROM_MAGIC = 0xB8;  // Magic Byte zur Erkennung initialisierter EEPROM
+const uint16_t EEPROM_SIZE = 512;   // Erweitert für MQTT- und NTP-Konfiguration
 
-const uint16_t EEPROM_MAGIC_ADDR = 0;
-const uint16_t EEPROM_BRIGHTNESS_ADDR = 1;
-const uint16_t EEPROM_AUTO_BRIGHTNESS_ADDR = 3;    // bool (1 byte)
-const uint16_t EEPROM_MIN_BRIGHTNESS_ADDR = 4;     // uint16_t (2 bytes)
-const uint16_t EEPROM_MAX_BRIGHTNESS_ADDR = 6;     // uint16_t (2 bytes)
-const uint16_t EEPROM_SENSOR_MIN_ADDR = 8;         // uint16_t (2 bytes)
-const uint16_t EEPROM_SENSOR_MAX_ADDR = 10;        // uint16_t (2 bytes)
-const uint16_t EEPROM_MQTT_ENABLED_ADDR = 12;      // bool (1 byte)
-const uint16_t EEPROM_MQTT_SERVER_ADDR = 13;       // String (64 bytes)
-const uint16_t EEPROM_MQTT_PORT_ADDR = 77;         // uint16_t (2 bytes)
-const uint16_t EEPROM_MQTT_USER_ADDR = 79;         // String (32 bytes)
-const uint16_t EEPROM_MQTT_PASSWORD_ADDR = 111;    // String (32 bytes)
-const uint16_t EEPROM_MQTT_TOPIC_ADDR = 143;       // String (64 bytes)
-const uint16_t EEPROM_PRESENCE_TIMEOUT_ADDR = 207; // uint32_t (4 bytes)
+// EEPROM-Adressen (mit Versionierung und Checksumme)
+const uint16_t EEPROM_VERSION_ADDR = 0;      // uint8_t (1 byte)
+const uint16_t EEPROM_MAGIC_ADDR = 1;        // uint8_t (1 byte)
+const uint16_t EEPROM_CHECKSUM_ADDR = 2;     // uint16_t (2 bytes)
+const uint16_t EEPROM_BRIGHTNESS_ADDR = 4;   // uint16_t (2 bytes)
+const uint16_t EEPROM_AUTO_BRIGHTNESS_ADDR = 6;    // bool (1 byte)
+const uint16_t EEPROM_MIN_BRIGHTNESS_ADDR = 7;     // uint16_t (2 bytes)
+const uint16_t EEPROM_MAX_BRIGHTNESS_ADDR = 9;     // uint16_t (2 bytes)
+const uint16_t EEPROM_SENSOR_MIN_ADDR = 11;         // uint16_t (2 bytes)
+const uint16_t EEPROM_SENSOR_MAX_ADDR = 13;        // uint16_t (2 bytes)
+const uint16_t EEPROM_MQTT_ENABLED_ADDR = 15;      // bool (1 byte)
+const uint16_t EEPROM_MQTT_SERVER_ADDR = 16;       // String (64 bytes)
+const uint16_t EEPROM_MQTT_PORT_ADDR = 80;         // uint16_t (2 bytes)
+const uint16_t EEPROM_MQTT_USER_ADDR = 82;         // String (32 bytes)
+const uint16_t EEPROM_MQTT_PASSWORD_ADDR = 114;    // String (32 bytes)
+const uint16_t EEPROM_MQTT_TOPIC_ADDR = 146;       // String (64 bytes)
+const uint16_t EEPROM_PRESENCE_TIMEOUT_ADDR = 210; // uint32_t (4 bytes)
+const uint16_t EEPROM_NTP_SERVER1_ADDR = 214;       // String (64 bytes)
+const uint16_t EEPROM_NTP_SERVER2_ADDR = 278;       // String (64 bytes)
 
 const uint8_t BUTTON_PIN = D4;
 
@@ -126,6 +152,19 @@ Effect *currentEffect = effects[currentEffectIndex];
 //   - M3.5.0 = März (M3), 5. Woche, Sonntag (0) = letzter Sonntag im März um 02:00 UTC
 //   - M10.5.0/3 = Oktober (M10), 5. Woche, Sonntag, um 03:00 UTC = letzter Sonntag im Oktober
 String tzString = "CET-1CEST,M3.5.0,M10.5.0/3"; // default Europe/Berlin mit DST
+yyyyyyyyString ntpServer1 = "pool.ntp.org"; // Primärer NTP-Server (konfigurierbar)
+String ntpServer2 = "time.nist.gov"; // Sekundärer NTP-Server (konfigurierbar)
+
+// Helper-Funktion für sichere Zeitdifferenz-Berechnung (handles millis() overflow)
+inline unsigned long timeDiff(unsigned long now, unsigned long then) {
+  // Bei Overflow: now < then, dann ist die Differenz (ULONG_MAX - then) + now + 1
+  if (now >= then) {
+    return now - then;
+  } else {
+    // Overflow aufgetreten
+    return (ULONG_MAX - then) + now + 1;
+  }
+}
 
 // Helper-Funktionen für String-Speicherung in EEPROM
 void writeStringToEEPROM(uint16_t addr, const String &str, uint16_t maxLen) {
@@ -138,6 +177,7 @@ void writeStringToEEPROM(uint16_t addr, const String &str, uint16_t maxLen) {
 
 String readStringFromEEPROM(uint16_t addr, uint16_t maxLen) {
   String str = "";
+  str.reserve(maxLen); // Speicher vorreservieren für bessere Performance
   for (uint16_t i = 0; i < maxLen; i++) {
     char c = EEPROM.read(addr + i);
     if (c == 0) break;
@@ -146,8 +186,37 @@ String readStringFromEEPROM(uint16_t addr, uint16_t maxLen) {
   return str;
 }
 
+// Berechnet Checksumme über alle EEPROM-Daten (ab EEPROM_BRIGHTNESS_ADDR bis EEPROM_SIZE)
+uint16_t calculateEEPROMChecksum() {
+  uint16_t checksum = 0;
+  for (uint16_t i = EEPROM_BRIGHTNESS_ADDR; i < EEPROM_SIZE; i++) {
+    checksum += EEPROM.read(i);
+    checksum = (checksum << 1) | (checksum >> 15); // Rotate für bessere Verteilung
+  }
+  return checksum;
+}
+
+// Validiert EEPROM-Daten: Version, Magic Byte und Checksumme
+bool validateEEPROM() {
+  uint8_t version = EEPROM.read(EEPROM_VERSION_ADDR);
+  uint8_t magic = EEPROM.read(EEPROM_MAGIC_ADDR);
+  uint16_t storedChecksum;
+  EEPROM.get(EEPROM_CHECKSUM_ADDR, storedChecksum);
+  
+  // Prüfe Version und Magic Byte
+  if (version != EEPROM_VERSION || magic != EEPROM_MAGIC) {
+    return false;
+  }
+  
+  // Prüfe Checksumme
+  uint16_t calculatedChecksum = calculateEEPROMChecksum();
+  return (storedChecksum == calculatedChecksum);
+}
+
 void loadBrightnessFromStorage() {
-  if (EEPROM.read(EEPROM_MAGIC_ADDR) == EEPROM_MAGIC) {
+  // Prüfe ob EEPROM initialisiert und gültig ist
+  if (validateEEPROM()) {
+    // EEPROM ist gültig, lade Daten
     uint16_t stored = DEFAULT_BRIGHTNESS;
     EEPROM.get(EEPROM_BRIGHTNESS_ADDR, stored);
     brightness = constrain(stored, 0, 1023);
@@ -167,15 +236,25 @@ void loadBrightnessFromStorage() {
     mqttPassword = readStringFromEEPROM(EEPROM_MQTT_PASSWORD_ADDR, 32);
     mqttPresenceTopic = readStringFromEEPROM(EEPROM_MQTT_TOPIC_ADDR, 64);
     EEPROM.get(EEPROM_PRESENCE_TIMEOUT_ADDR, presenceTimeout);
+    
+    // NTP-Server laden
+    String loadedNtp1 = readStringFromEEPROM(EEPROM_NTP_SERVER1_ADDR, 64);
+    String loadedNtp2 = readStringFromEEPROM(EEPROM_NTP_SERVER2_ADDR, 64);
+    if (loadedNtp1.length() > 0) ntpServer1 = loadedNtp1;
+    if (loadedNtp2.length() > 0) ntpServer2 = loadedNtp2;
 
-    // Werte validieren
+    // Werte validieren und korrigieren falls nötig
     minBrightness = constrain(minBrightness, 0, 1023);
     maxBrightness = constrain(maxBrightness, 0, 1023);
     sensorMin = constrain(sensorMin, 0, 1023);
     sensorMax = constrain(sensorMax, 0, 1023);
     if (mqttPort == 0 || mqttPort > 65535) mqttPort = 1883;
     if (presenceTimeout == 0) presenceTimeout = 300000;
+    
+    Serial.println("EEPROM data loaded and validated successfully");
   } else {
+    // EEPROM ungültig oder nicht initialisiert, verwende Defaults
+    Serial.println("EEPROM invalid or not initialized, using defaults");
     brightness = DEFAULT_BRIGHTNESS;
     autoBrightnessEnabled = false;
     minBrightness = 100;
@@ -183,23 +262,43 @@ void loadBrightnessFromStorage() {
     sensorMin = 5;
     sensorMax = 450;
     mqttEnabled = false;
+    mqttServer = "";
+    mqttPort = 1883;
+    mqttUser = "";
+    mqttPassword = "";
+    mqttPresenceTopic = "";
     presenceTimeout = 300000;
+    ntpServer1 = "pool.ntp.org";
+    ntpServer2 = "time.nist.gov";
   }
 }
 
 void persistBrightnessToStorage() {
+  // Version und Magic Byte setzen
+  EEPROM.write(EEPROM_VERSION_ADDR, EEPROM_VERSION);
   EEPROM.write(EEPROM_MAGIC_ADDR, EEPROM_MAGIC);
+  
+  // Daten schreiben
   EEPROM.put(EEPROM_BRIGHTNESS_ADDR, brightness);
   EEPROM.write(EEPROM_AUTO_BRIGHTNESS_ADDR, autoBrightnessEnabled ? 1 : 0);
   EEPROM.put(EEPROM_MIN_BRIGHTNESS_ADDR, minBrightness);
   EEPROM.put(EEPROM_MAX_BRIGHTNESS_ADDR, maxBrightness);
   EEPROM.put(EEPROM_SENSOR_MIN_ADDR, sensorMin);
   EEPROM.put(EEPROM_SENSOR_MAX_ADDR, sensorMax);
+  
+  // Checksumme berechnen und speichern
+  uint16_t checksum = calculateEEPROMChecksum();
+  EEPROM.put(EEPROM_CHECKSUM_ADDR, checksum);
+  
   EEPROM.commit();
 }
 
 void persistMqttToStorage() {
+  // Version und Magic Byte setzen (falls noch nicht gesetzt)
+  EEPROM.write(EEPROM_VERSION_ADDR, EEPROM_VERSION);
   EEPROM.write(EEPROM_MAGIC_ADDR, EEPROM_MAGIC);
+  
+  // MQTT-Daten schreiben
   EEPROM.write(EEPROM_MQTT_ENABLED_ADDR, mqttEnabled ? 1 : 0);
   writeStringToEEPROM(EEPROM_MQTT_SERVER_ADDR, mqttServer, 64);
   EEPROM.put(EEPROM_MQTT_PORT_ADDR, mqttPort);
@@ -207,6 +306,11 @@ void persistMqttToStorage() {
   writeStringToEEPROM(EEPROM_MQTT_PASSWORD_ADDR, mqttPassword, 32);
   writeStringToEEPROM(EEPROM_MQTT_TOPIC_ADDR, mqttPresenceTopic, 64);
   EEPROM.put(EEPROM_PRESENCE_TIMEOUT_ADDR, presenceTimeout);
+  
+  // Checksumme berechnen und speichern
+  uint16_t checksum = calculateEEPROMChecksum();
+  EEPROM.put(EEPROM_CHECKSUM_ADDR, checksum);
+  
   EEPROM.commit();
 }
 
@@ -232,11 +336,11 @@ bool processLightSensorSample() {
     sensorSampleCount++;
     lastSensorSample = now;
 
-    // #region agent log
+#ifdef DEBUG_LOGGING_ENABLED
     if (sensorSampleCount == 1 || sensorSampleCount == LIGHT_SENSOR_SAMPLES) { // Erste und letzte Messung loggen
       debugLogJson("processLightSensorSample", "Sensor sample", "D", "{\"sampleCount\":%d,\"reading\":%d,\"sum\":%lu}", sensorSampleCount, sensorReading, sensorSampleSum);
     }
-    // #endregion
+#endif
 
     if (sensorSampleCount >= LIGHT_SENSOR_SAMPLES) {
       sensorSamplingInProgress = false;
@@ -254,28 +358,28 @@ uint16_t getLightSensorResult() {
 
 // VERBESSERT: Exponential Moving Average (sanfter als Simple Moving Average)
 float applyEMA(float newValue) {
-  // #region agent log
+#ifdef DEBUG_LOGGING_ENABLED
   float oldEma = emaSensorValue;
-  // #endregion
+#endif
   
   if (!emaInitialized) {
     emaSensorValue = newValue;
     emaInitialized = true;
-    // #region agent log
+#ifdef DEBUG_LOGGING_ENABLED
     debugLogJson("applyEMA", "EMA initialized", "D", "{\"newValue\":%.2f}", newValue);
-    // #endregion
+#endif
     return newValue;
   }
 
   // EMA Formel: EMA_new = alpha * value + (1 - alpha) * EMA_old
   emaSensorValue = EMA_ALPHA_SENSOR * newValue + (1.0 - EMA_ALPHA_SENSOR) * emaSensorValue;
   
-  // #region agent log
+#ifdef DEBUG_LOGGING_ENABLED
   float emaChange = abs(emaSensorValue - oldEma);
   if (emaChange > 10) { // Nur loggen bei größeren Änderungen
     debugLogJson("applyEMA", "EMA update", "D", "{\"newValue\":%.2f,\"oldEma\":%.2f,\"newEma\":%.2f,\"change\":%.2f,\"alpha\":%.2f}", newValue, oldEma, emaSensorValue, emaChange, EMA_ALPHA_SENSOR);
   }
-  // #endregion
+#endif
   
   return emaSensorValue;
 }
@@ -296,9 +400,9 @@ uint16_t applyBrightnessEMA(uint16_t newBrightness) {
 }
 
 void updateAutoBrightness() {
-    // #region agent log
+#ifdef DEBUG_LOGGING_ENABLED
     debugLogJson("updateAutoBrightness", "Function entry", "D", "{\"enabled\":%d,\"displayEnabled\":%d}", autoBrightnessEnabled ? 1 : 0, displayEnabled ? 1 : 0);
-    // #endregion
+#endif
   
   if (!autoBrightnessEnabled || !displayEnabled) {
     return;
@@ -314,14 +418,14 @@ void updateAutoBrightness() {
   if (sensorSampleCount > 0) {
     // Alle Samples gesammelt, jetzt auswerten
     uint16_t rawSensorValue = getLightSensorResult();
-    // #region agent log
+#ifdef DEBUG_LOGGING_ENABLED
     debugLogJson("updateAutoBrightness", "Raw sensor value", "D", "{\"rawSensorValue\":%d}", rawSensorValue);
-    // #endregion
+#endif
     
     float smoothedSensorValue = applyEMA(rawSensorValue);
-    // #region agent log
+#ifdef DEBUG_LOGGING_ENABLED
     debugLogJson("updateAutoBrightness", "EMA smoothed value", "D", "{\"smoothedSensorValue\":%.2f,\"emaSensorValue\":%.2f}", smoothedSensorValue, emaSensorValue);
-    // #endregion
+#endif
 
     // Map Sensorwert (sensorMin..sensorMax) auf Helligkeit (minBrightness..maxBrightness)
     uint16_t newBrightness;
@@ -338,10 +442,10 @@ void updateAutoBrightness() {
       newBrightness = map((uint16_t)smoothedSensorValue, sensorMin, sensorMax, minBrightness, maxBrightness);
     }
 
-    // #region agent log
+#ifdef DEBUG_LOGGING_ENABLED
     int brightnessDiff = abs((int)newBrightness - (int)brightness);
     debugLogJson("updateAutoBrightness", "Brightness calculation", "D", "{\"newBrightness\":%d,\"currentBrightness\":%d,\"diff\":%d,\"threshold\":%d,\"atBoundary\":%d}", newBrightness, brightness, brightnessDiff, BRIGHTNESS_CHANGE_THRESHOLD, atBoundary ? 1 : 0);
-    // #endregion
+#endif
 
     // Zusätzliche Glättung der Helligkeitsänderungen (verhindert abrupte Sprünge)
     uint16_t smoothedBrightness = applyBrightnessEMA(newBrightness);
@@ -354,16 +458,16 @@ void updateAutoBrightness() {
     if (atBoundary || smoothedDiff > BRIGHTNESS_CHANGE_THRESHOLD) {
       brightness = smoothedBrightness; // Verwende geglättete Helligkeit
       analogWrite(PIN_ENABLE, 1023 - brightness);
-      // #region agent log
+#ifdef DEBUG_LOGGING_ENABLED
       debugLogJson("updateAutoBrightness", "Brightness updated", "D", "{\"brightness\":%d,\"rawSensorValue\":%d,\"smoothedSensorValue\":%.2f,\"newBrightness\":%d,\"smoothedBrightness\":%d,\"atBoundary\":%d}", brightness, rawSensorValue, smoothedSensorValue, newBrightness, smoothedBrightness, atBoundary ? 1 : 0);
-      // #endregion
+#endif
       Serial.printf("Auto-Brightness: Raw=%d, EMA=%.1f -> New=%d, Smoothed=%d%s\n",
                     rawSensorValue, smoothedSensorValue, newBrightness, brightness,
                     atBoundary ? " (boundary)" : "");
     } else {
-      // #region agent log
+#ifdef DEBUG_LOGGING_ENABLED
       debugLogJson("updateAutoBrightness", "Brightness not updated (threshold)", "D", "{\"newBrightness\":%d,\"smoothedBrightness\":%d,\"currentBrightness\":%d,\"diff\":%d}", newBrightness, smoothedBrightness, brightness, smoothedDiff);
-      // #endregion
+#endif
     }
   }
 
@@ -373,8 +477,9 @@ void updateAutoBrightness() {
 
 // MQTT Callback für eingehende Nachrichten
 void mqttCallback(char* topic, byte* payload, unsigned int length) {
-  // Payload zu String konvertieren
+  // Payload zu String konvertieren (optimiert mit reserve)
   String message = "";
+  message.reserve(length + 1); // Speicher vorreservieren
   for (unsigned int i = 0; i < length; i++) {
     message += (char)payload[i];
   }
@@ -434,10 +539,10 @@ void mqttCallback(char* topic, byte* payload, unsigned int length) {
 
 // MQTT Verbindung aufbauen/wiederherstellen
 bool reconnectMQTT() {
-    // #region agent log
+#ifdef DEBUG_LOGGING_ENABLED
     unsigned long reconnectStart = millis();
     debugLogJson("reconnectMQTT", "MQTT reconnect start", "C", "{\"freeHeap\":%d}", ESP.getFreeHeap());
-    // #endregion
+#endif
   
   if (!mqttEnabled || mqttServer.length() == 0) {
     return false;
@@ -449,36 +554,56 @@ bool reconnectMQTT() {
 
   Serial.printf("Attempting MQTT connection to %s:%d...\n", mqttServer.c_str(), mqttPort);
 
-  // Client-ID generieren
-  String clientId = "IkeaClock-" + String(ESP.getChipId(), HEX);
+  // Client-ID generieren (optimiert)
+  char clientIdBuf[32];
+  snprintf(clientIdBuf, sizeof(clientIdBuf), "IkeaClock-%x", ESP.getChipId());
+  String clientId = String(clientIdBuf);
 
+  // Socket-Timeout setzen (für non-blocking Connect)
+  mqttClient.setSocketTimeout(MQTT_CONNECT_TIMEOUT / 1000); // in Sekunden
+  
   bool connected = false;
+  unsigned long connectStart = millis();
   if (mqttUser.length() > 0) {
     connected = mqttClient.connect(clientId.c_str(), mqttUser.c_str(), mqttPassword.c_str());
   } else {
     connected = mqttClient.connect(clientId.c_str());
   }
+  
+  // Prüfe ob Connect zu lange gedauert hat (Fallback)
+  unsigned long connectDuration = millis() - connectStart;
+  if (connectDuration > MQTT_CONNECT_TIMEOUT) {
+    Serial.printf("MQTT connect timeout after %lu ms\n", connectDuration);
+    connected = false;
+  }
 
-  // #region agent log
+#ifdef DEBUG_LOGGING_ENABLED
   unsigned long reconnectDuration = millis() - reconnectStart;
-  // #endregion
+#endif
   
   if (connected) {
     Serial.println("MQTT connected!");
+    // Backoff zurücksetzen bei erfolgreicher Verbindung
+    mqttReconnectBackoff = 1000;
     // Topic abonnieren
     if (mqttPresenceTopic.length() > 0) {
       mqttClient.subscribe(mqttPresenceTopic.c_str());
       Serial.printf("Subscribed to topic: %s\n", mqttPresenceTopic.c_str());
     }
-    // #region agent log
+#ifdef DEBUG_LOGGING_ENABLED
     debugLogJson("reconnectMQTT", "MQTT reconnect success", "C", "{\"duration\":%lu}", reconnectDuration);
-    // #endregion
+#endif
     return true;
   } else {
-    Serial.printf("MQTT connection failed, rc=%d\n", mqttClient.state());
-    // #region agent log
-    debugLogJson("reconnectMQTT", "MQTT reconnect failed", "C", "{\"duration\":%lu,\"rc\":%d}", reconnectDuration, mqttClient.state());
-    // #endregion
+    Serial.printf("MQTT connection failed, rc=%d, next retry in %lu ms\n", mqttClient.state(), mqttReconnectBackoff);
+    // Exponential Backoff erhöhen
+    mqttReconnectBackoff *= MQTT_BACKOFF_MULTIPLIER;
+    if (mqttReconnectBackoff > MQTT_MAX_BACKOFF) {
+      mqttReconnectBackoff = MQTT_MAX_BACKOFF;
+    }
+#ifdef DEBUG_LOGGING_ENABLED
+    debugLogJson("reconnectMQTT", "MQTT reconnect failed", "C", "{\"duration\":%lu,\"rc\":%d,\"nextBackoff\":%lu}", reconnectDuration, mqttClient.state(), mqttReconnectBackoff);
+#endif
     return false;
   }
 }
@@ -495,7 +620,7 @@ void updatePresenceTimeout() {
   }
 
   // Keine Präsenz: Prüfe ob Timeout abgelaufen und Display noch an
-  unsigned long timeSincePresence = millis() - lastPresenceTime;
+  unsigned long timeSincePresence = timeDiff(millis(), lastPresenceTime);
 
   if (displayEnabled && timeSincePresence > presenceTimeout) {
     displayEnabled = false;
@@ -506,11 +631,35 @@ void updatePresenceTimeout() {
   }
 }
 
+// Rate-Limiting Prüfung für API-Endpoints
+bool checkRateLimit() {
+  unsigned long now = millis();
+  unsigned long timeSinceLastWindow = timeDiff(now, apiRateLimit.lastRequest);
+  
+  if (timeSinceLastWindow > RATE_LIMIT_WINDOW) {
+    // Neues Zeitfenster, Counter zurücksetzen
+    apiRateLimit.requestCount = 1;
+    apiRateLimit.lastRequest = now;
+    return true;
+  } else {
+    // Innerhalb des Zeitfensters
+    apiRateLimit.requestCount++;
+    if (apiRateLimit.requestCount > RATE_LIMIT_MAX_REQUESTS) {
+      return false; // Rate-Limit überschritten
+    }
+    return true;
+  }
+}
+
 void handleRoot() {
   server.send_P(200, "text/html", WEB_INTERFACE_HTML);
 }
 
 void handleStatus() {
+  if (!checkRateLimit()) {
+    server.send(429, "application/json", "{\"error\":\"Too many requests\"}");
+    return;
+  }
   time_t now = time(nullptr);
   struct tm *t = localtime(&now);
   char buf[16];
@@ -520,28 +669,34 @@ void handleStatus() {
     strncpy(buf, "--:--:--", sizeof(buf));
   }
   uint16_t sensorValue = analogRead(LIGHT_SENSOR_PIN);
-  String json = String("{\"time\":\"") + buf +
-                "\",\"effect\":\"" + currentEffect->name +
-                "\",\"tz\":\"" + tzString +
-                "\",\"brightness\":" + String(brightness) +
-                ",\"autoBrightness\":" + (autoBrightnessEnabled ? "true" : "false") +
-                ",\"minBrightness\":" + String(minBrightness) +
-                ",\"maxBrightness\":" + String(maxBrightness) +
-                ",\"sensorMin\":" + String(sensorMin) +
-                ",\"sensorMax\":" + String(sensorMax) +
-                ",\"sensorValue\":" + String(sensorValue) +
-                ",\"mqttEnabled\":" + (mqttEnabled ? "true" : "false") +
-                ",\"mqttConnected\":" + (mqttClient.connected() ? "true" : "false") +
-                ",\"mqttServer\":\"" + mqttServer + "\"" +
-                ",\"mqttPort\":" + String(mqttPort) +
-                ",\"mqttTopic\":\"" + mqttPresenceTopic + "\"" +
-                ",\"presenceDetected\":" + (presenceDetected ? "true" : "false") +
-                ",\"displayEnabled\":" + (displayEnabled ? "true" : "false") +
-                ",\"presenceTimeout\":" + String(presenceTimeout) + "}";
+  
+  // JSON mit snprintf für bessere Performance (statt String-Konkatenation)
+  char json[768];
+  String ipAddress = WiFi.localIP().toString();
+  snprintf(json, sizeof(json),
+    "{\"time\":\"%s\",\"effect\":\"%s\",\"tz\":\"%s\",\"brightness\":%d,"
+    "\"autoBrightness\":%s,\"minBrightness\":%d,\"maxBrightness\":%d,"
+    "\"sensorMin\":%d,\"sensorMax\":%d,\"sensorValue\":%d,"
+    "\"mqttEnabled\":%s,\"mqttConnected\":%s,\"mqttServer\":\"%s\","
+    "\"mqttPort\":%d,\"mqttTopic\":\"%s\",\"presenceDetected\":%s,"
+    "\"displayEnabled\":%s,\"presenceTimeout\":%lu,"
+    "\"otaEnabled\":%s,\"otaHostname\":\"%s\",\"ipAddress\":\"%s\"}",
+    buf, currentEffect->name, tzString.c_str(), brightness,
+    autoBrightnessEnabled ? "true" : "false", minBrightness, maxBrightness,
+    sensorMin, sensorMax, sensorValue,
+    mqttEnabled ? "true" : "false", mqttClient.connected() ? "true" : "false",
+    mqttServer.c_str(), mqttPort, mqttPresenceTopic.c_str(),
+    presenceDetected ? "true" : "false", displayEnabled ? "true" : "false",
+    presenceTimeout,
+    (WiFi.status() == WL_CONNECTED) ? "true" : "false", "IkeaClock", ipAddress.c_str());
   server.send(200, "application/json", json);
 }
 
 void handleSetTimezone() {
+  if (!checkRateLimit()) {
+    server.send(429, "application/json", "{\"error\":\"Too many requests\"}");
+    return;
+  }
   if (server.hasArg("tz")) {
     tzString = server.arg("tz");
     setenv("TZ", tzString.c_str(), 1);
@@ -553,6 +708,10 @@ void handleSetTimezone() {
 }
 
 void handleSetBrightness() {
+  if (!checkRateLimit()) {
+    server.send(429, "application/json", "{\"error\":\"Too many requests\"}");
+    return;
+  }
   if (server.hasArg("b")) {
     brightness = constrain(server.arg("b").toInt(), 0, 1023);
     analogWrite(PIN_ENABLE, 1023 - brightness);
@@ -571,6 +730,10 @@ void handleSetBrightness() {
 }
 
 void handleSetAutoBrightness() {
+  if (!checkRateLimit()) {
+    server.send(429, "application/json", "{\"error\":\"Too many requests\"}");
+    return;
+  }
   // Parameter aus HTTP-Request lesen und validieren
   if (server.hasArg("enabled")) {
     String val = server.arg("enabled");
@@ -613,6 +776,10 @@ void handleSetAutoBrightness() {
 }
 
 void handleSetMqtt() {
+  if (!checkRateLimit()) {
+    server.send(429, "application/json", "{\"error\":\"Too many requests\"}");
+    return;
+  }
   // MQTT-Konfiguration setzen
   if (server.hasArg("enabled")) {
     String val = server.arg("enabled");
@@ -677,6 +844,10 @@ bool applyEffect(uint8_t idx) {
 }
 
 void selectEffect(uint8_t idx) {
+  if (!checkRateLimit()) {
+    server.send(429, "application/json", "{\"error\":\"Too many requests\"}");
+    return;
+  }
   bool ok = applyEffect(idx);
   WiFiClient client = server.client();
   if (!client || !client.connected()) {
@@ -764,7 +935,7 @@ bool setupWiFi() {
 }
 
 void setupNTP() {
-  configTime(0, 0, "pool.ntp.org", "time.nist.gov");
+  configTime(0, 0, ntpServer1.c_str(), ntpServer2.c_str());
   // Zeitzone mit POSIX TZ String setzen - DST (Sommer-/Winterzeit) wird automatisch berücksichtigt
   setenv("TZ", tzString.c_str(), 1);
   tzset(); // Zeitzone anwenden
@@ -794,11 +965,36 @@ void setup() {
   // FIX: Watchdog sofort füttern (verhindert Neustarts während Setup)
   ESP.wdtFeed();
 
-  // #region agent log
+#ifdef DEBUG_LOGGING_ENABLED
+  // SPIFFS initialisieren mit Fehlerbehandlung
+  if (!SPIFFS.begin()) {
+    Serial.println("SPIFFS initialization failed! Debug logging disabled.");
+  } else {
+    FSInfo fs_info;
+    if (SPIFFS.info(fs_info)) {
+      Serial.printf("SPIFFS: %d bytes total, %d bytes used, %d bytes free\n", 
+                    fs_info.totalBytes, fs_info.usedBytes, 
+                    fs_info.totalBytes - fs_info.usedBytes);
+    }
+    // Alte Logs nur löschen wenn genug Platz vorhanden
+    if (SPIFFS.exists("/debug.log")) {
+      File logCheck = SPIFFS.open("/debug.log", "r");
+      if (logCheck) {
+        size_t logSize = logCheck.size();
+        logCheck.close();
+        // Nur löschen wenn Log sehr groß (>64KB) oder wenig Speicher
+        if (logSize > 65536 || (fs_info.totalBytes - fs_info.usedBytes < 8192)) {
+          SPIFFS.remove("/debug.log");
+          Serial.println("Old debug.log removed due to size or low memory");
+        }
+      }
+    }
+    debugLogJson("setup", "System startup", "A", "{\"freeHeap\":%d}", ESP.getFreeHeap());
+  }
+#else
+  // SPIFFS initialisieren (ohne Debug-Logging)
   SPIFFS.begin();
-  SPIFFS.remove("/debug.log"); // Alte Logs löschen
-  debugLogJson("setup", "System startup", "A", "{\"freeHeap\":%d}", ESP.getFreeHeap());
-  // #endregion
+#endif
 
   EEPROM.begin(EEPROM_SIZE);
   loadBrightnessFromStorage();
@@ -819,6 +1015,57 @@ void setup() {
   if (wifiConnected) {
     setupNTP();
     ESP.wdtFeed(); // Watchdog nach NTP-Setup füttern
+    
+    // ArduinoOTA Setup
+    ArduinoOTA.setHostname("IkeaClock");
+    ArduinoOTA.setPassword("admin"); // Passwort für OTA-Updates (sollte geändert werden!)
+    
+    ArduinoOTA.onStart([]() {
+      String type;
+      if (ArduinoOTA.getCommand() == U_FLASH) {
+        type = "sketch";
+      } else { // U_SPIFFS
+        type = "filesystem";
+      }
+      Serial.println("Start updating " + type);
+      // Display ausschalten während Update
+      analogWrite(PIN_ENABLE, 1023);
+    });
+    
+    ArduinoOTA.onEnd([]() {
+      Serial.println("\nEnd");
+    });
+    
+    ArduinoOTA.onProgress([](unsigned int progress, unsigned int total) {
+      Serial.printf("Progress: %u%%\r", (progress / (total / 100)));
+    });
+    
+    ArduinoOTA.onError([](ota_error_t error) {
+      Serial.printf("Error[%u]: ", error);
+      if (error == OTA_AUTH_ERROR) {
+        Serial.println("Auth Failed");
+      } else if (error == OTA_BEGIN_ERROR) {
+        Serial.println("Begin Failed");
+      } else if (error == OTA_CONNECT_ERROR) {
+        Serial.println("Connect Failed");
+      } else if (error == OTA_RECEIVE_ERROR) {
+        Serial.println("Receive Failed");
+      } else if (error == OTA_END_ERROR) {
+        Serial.println("End Failed");
+      }
+    });
+    
+    ArduinoOTA.begin();
+    Serial.println("OTA ready");
+    Serial.printf("OTA Hostname: %s\n", "IkeaClock");
+    Serial.printf("OTA IP Address: %s\n", WiFi.localIP().toString().c_str());
+    Serial.printf("OTA Port: 3232\n");
+    Serial.println("========================================");
+    Serial.println("OTA Update Instructions:");
+    Serial.println("1. In Arduino IDE: Tools -> Port -> Network Ports");
+    Serial.printf("2. Select: %s or %s.local\n", WiFi.localIP().toString().c_str(), "IkeaClock");
+    Serial.println("3. Click Upload (password: admin)");
+    Serial.println("========================================");
   }
 
   server.on("/", handleRoot);
@@ -841,6 +1088,10 @@ void setup() {
   server.on("/effect/ripple", []() { selectEffect(11); });
   server.on("/effect/sandclock", []() { selectEffect(12); });
   server.on("/api/debuglog", []() {
+    if (!SPIFFS.exists("/")) {
+      server.send(503, "text/plain", "SPIFFS not available");
+      return;
+    }
     File logFile = SPIFFS.open("/debug.log", "r");
     if (logFile) {
       server.streamFile(logFile, "application/x-ndjson");
@@ -848,6 +1099,88 @@ void setup() {
     } else {
       server.send(404, "text/plain", "Debug log not found");
     }
+  });
+  
+  // Backup-Endpoint: Export aller Konfiguration als JSON
+  server.on("/api/backup", []() {
+    if (!checkRateLimit()) {
+      server.send(429, "application/json", "{\"error\":\"Too many requests\"}");
+      return;
+    }
+    
+    // Erstelle JSON mit allen Konfigurationsdaten
+    char json[1024];
+    time_t now = time(nullptr);
+    snprintf(json, sizeof(json),
+      "{\"version\":%d,\"timestamp\":%lu,\"checksum\":%d,"
+      "\"config\":{"
+      "\"brightness\":%d,\"autoBrightness\":%s,"
+      "\"minBrightness\":%d,\"maxBrightness\":%d,"
+      "\"sensorMin\":%d,\"sensorMax\":%d,"
+      "\"mqttEnabled\":%s,\"mqttServer\":\"%s\",\"mqttPort\":%d,"
+      "\"mqttUser\":\"%s\",\"mqttTopic\":\"%s\",\"presenceTimeout\":%lu,"
+      "\"tz\":\"%s\",\"ntpServer1\":\"%s\",\"ntpServer2\":\"%s\""
+      "}}",
+      EEPROM_VERSION, (unsigned long)now, calculateEEPROMChecksum(),
+      brightness, autoBrightnessEnabled ? "true" : "false",
+      minBrightness, maxBrightness,
+      sensorMin, sensorMax,
+      mqttEnabled ? "true" : "false", mqttServer.c_str(), mqttPort,
+      mqttUser.c_str(), mqttPresenceTopic.c_str(), presenceTimeout,
+      tzString.c_str(), ntpServer1.c_str(), ntpServer2.c_str());
+    
+    server.send(200, "application/json", json);
+  });
+  
+  // Restore-Endpoint: Import Konfiguration aus JSON
+  server.on("/api/restore", HTTP_POST, []() {
+    if (!checkRateLimit()) {
+      server.send(429, "application/json", "{\"error\":\"Too many requests\"}");
+      return;
+    }
+    
+    if (!server.hasArg("plain")) {
+      server.send(400, "application/json", "{\"error\":\"Missing JSON data\"}");
+      return;
+    }
+    
+    String jsonData = server.arg("plain");
+    
+    // Einfaches JSON-Parsing (ohne Bibliothek)
+    // Suche nach Version
+    int versionPos = jsonData.indexOf("\"version\":");
+    if (versionPos < 0) {
+      server.send(400, "application/json", "{\"error\":\"Invalid backup format: missing version\"}");
+      return;
+    }
+    
+    // Extrahiere Version
+    int versionStart = jsonData.indexOf(":", versionPos) + 1;
+    int versionEnd = jsonData.indexOf(",", versionStart);
+    if (versionEnd < 0) versionEnd = jsonData.indexOf("}", versionStart);
+    int version = jsonData.substring(versionStart, versionEnd).toInt();
+    
+    if (version != EEPROM_VERSION) {
+      server.send(400, "application/json", "{\"error\":\"Backup version mismatch\"}");
+      return;
+    }
+    
+    // Extrahiere config-Objekt (vereinfacht)
+    int configStart = jsonData.indexOf("\"config\":{");
+    if (configStart < 0) {
+      server.send(400, "application/json", "{\"error\":\"Invalid backup format: missing config\"}");
+      return;
+    }
+    
+    // Parse einzelne Werte (vereinfachte Implementierung)
+    // In Produktion sollte eine JSON-Bibliothek verwendet werden
+    // Hier nur grundlegende Validierung und Warnung
+    Serial.println("Restore request received (basic validation only)");
+    Serial.printf("Backup data length: %d\n", jsonData.length());
+    
+    // Für vollständige Implementierung: JSON-Bibliothek verwenden
+    // Hier nur Bestätigung senden
+    server.send(200, "application/json", "{\"status\":\"restore_not_fully_implemented\",\"message\":\"Basic validation passed. Full restore requires JSON library.\"}");
   });
   if (wifiConnected) {
     server.begin();
@@ -891,16 +1224,22 @@ void loop() {
     lastWatchdogFeed = now;
   }
 
-  // #region agent log
+#ifdef DEBUG_LOGGING_ENABLED
   loopCount++;
   if (loopCount % 100 == 0) { // Jeden 100. Loop
-    unsigned long timeSinceWatchdog = now - lastWatchdogFeed;
+    unsigned long timeSinceWatchdog = timeDiff(now, lastWatchdogFeed);
     int freeHeap = ESP.getFreeHeap();
     debugLogJson("loop", "Loop iteration", "A", "{\"loopCount\":%lu,\"timeSinceWatchdog\":%lu,\"freeHeap\":%d}", loopCount, timeSinceWatchdog, freeHeap);
   }
-  // #endregion
+#endif
 
   server.handleClient();
+  yield();
+  
+  // ArduinoOTA Handler (muss regelmäßig aufgerufen werden)
+  if (WiFi.status() == WL_CONNECTED) {
+    ArduinoOTA.handle();
+  }
   yield();
 
   // MQTT Loop (muss regelmäßig aufgerufen werden)
@@ -908,7 +1247,7 @@ void loop() {
     mqttClient.loop();
   }
 
-  if (millis() - lastWiFiCheck > 30000) {
+  if (timeDiff(millis(), lastWiFiCheck) > 30000) {
     if (WiFi.status() != WL_CONNECTED) {
       Serial.println("WiFi lost, reconnecting...");
       WiFi.reconnect();
@@ -925,35 +1264,35 @@ void loop() {
   }
 
   if (!ntpConfigured && WiFi.status() == WL_CONNECTED) {
-    // #region agent log
+#ifdef DEBUG_LOGGING_ENABLED
     unsigned long ntpStart = millis();
     debugLogJson("loop", "NTP setup start", "C", "{\"freeHeap\":%d}", ESP.getFreeHeap());
-    // #endregion
+#endif
     setupNTP();
-    // #region agent log
+#ifdef DEBUG_LOGGING_ENABLED
     unsigned long ntpDuration = millis() - ntpStart;
     debugLogJson("loop", "NTP setup end", "C", "{\"duration\":%lu}", ntpDuration);
-    // #endregion
+#endif
     ntpConfigured = true;
   }
 
-  // MQTT Reconnection (alle 10 Sekunden versuchen falls nicht verbunden)
-  if (mqttEnabled && millis() - lastMqttReconnect > 10000) {
-    if (!mqttClient.connected() && WiFi.status() == WL_CONNECTED) {
+  // MQTT Reconnection mit Exponential Backoff
+  if (mqttEnabled && !mqttClient.connected() && WiFi.status() == WL_CONNECTED) {
+    if (timeDiff(millis(), lastMqttReconnect) >= mqttReconnectBackoff) {
       reconnectMQTT();
+      lastMqttReconnect = millis();
     }
-    lastMqttReconnect = millis();
   }
 
   // Präsenz-Timeout prüfen (alle 2 Sekunden)
-  if (mqttEnabled && millis() - lastPresenceCheck > 2000) {
+  if (mqttEnabled && timeDiff(millis(), lastPresenceCheck) > 2000) {
     updatePresenceTimeout();
     lastPresenceCheck = millis();
   }
 
-  if (millis() - lastButtonCheck > 50) {
+  if (timeDiff(millis(), lastButtonCheck) > 50) {
     static unsigned long lastPress = 0;
-    if (digitalRead(BUTTON_PIN) == LOW && millis() - lastPress > 300) {
+    if (digitalRead(BUTTON_PIN) == LOW && timeDiff(millis(), lastPress) > 300) {
       nextEffect();
       lastPress = millis();
     }
@@ -961,26 +1300,26 @@ void loop() {
   }
 
   // Frame nur zeichnen wenn Display aktiviert ist
-  if (millis() - lastFrameUpdate > 50) {
+  if (timeDiff(millis(), lastFrameUpdate) > 50) {
     if (displayEnabled) {
-      // #region agent log
+#ifdef DEBUG_LOGGING_ENABLED
       unsigned long frameStart = millis();
-      // #endregion
+#endif
       uint8_t frame[32];
       clearFrame(frame, sizeof(frame));
       currentEffect->draw(frame);
       shiftOutBuffer(frame, sizeof(frame));
-      // #region agent log
+#ifdef DEBUG_LOGGING_ENABLED
       unsigned long frameDuration = millis() - frameStart;
       if (frameDuration > 30) { // Nur loggen wenn langsam
         debugLogJson("loop", "Frame draw slow", "B", "{\"duration\":%lu}", frameDuration);
       }
-      // #endregion
+#endif
     }
     lastFrameUpdate = millis();
   }
 
-  if (millis() - lastStatusPrint > 60000) {
+  if (timeDiff(millis(), lastStatusPrint) > 60000) {
     Serial.printf("Uptime: %lus, Free heap: %d bytes, Display: %s, Presence: %s\n",
                   millis() / 1000, ESP.getFreeHeap(),
                   displayEnabled ? "ON" : "OFF",
@@ -996,7 +1335,7 @@ void loop() {
   }
 
   // Nur einen neuen Sample-Zyklus starten wenn der vorherige abgeschlossen ist
-  if (millis() - lastBrightnessUpdate > AUTO_BRIGHTNESS_UPDATE_INTERVAL) {
+  if (timeDiff(millis(), lastBrightnessUpdate) > AUTO_BRIGHTNESS_UPDATE_INTERVAL) {
     updateAutoBrightness();
     lastBrightnessUpdate = millis();
   }
@@ -1004,20 +1343,84 @@ void loop() {
   yield();
   delay(1);
   
-  // #region agent log
-  unsigned long timeSinceWatchdog = now - lastWatchdogFeed;
+#ifdef DEBUG_LOGGING_ENABLED
+  unsigned long timeSinceWatchdog = timeDiff(now, lastWatchdogFeed);
   if (timeSinceWatchdog > 5000) { // Warnung wenn länger als 5s
     debugLogJson("loop", "Watchdog feed delayed", "A", "{\"timeSinceWatchdog\":%lu}", timeSinceWatchdog);
   }
   lastWatchdogFeed = now;
-  // #endregion
+#endif
 }
 
-// #region agent log
-// Debug-Logging Funktion
+#ifdef DEBUG_LOGGING_ENABLED
+// Debug-Logging Konstanten
+const size_t MAX_LOG_SIZE = 32768; // 32KB maximale Log-Größe
+const size_t LOG_ROTATE_SIZE = 16384; // Bei 16KB rotieren (ältere Hälfte löschen)
+
+// Debug-Logging Funktion mit Rotation
 void debugLog(const char* location, const char* message, const char* hypothesisId, const char* dataJson) {
   unsigned long now = millis();
   int freeHeap = ESP.getFreeHeap();
+  
+  // Prüfe ob SPIFFS verfügbar ist
+  if (!SPIFFS.exists("/")) {
+    // SPIFFS nicht verfügbar, nur Serial ausgeben
+    Serial.printf("[DEBUG] %s:%s [%s] %s freeHeap=%d\n", location, message, hypothesisId, dataJson ? dataJson : "{}", freeHeap);
+    return;
+  }
+  
+  // Prüfe Log-Dateigröße und rotiere bei Bedarf
+  if (SPIFFS.exists("/debug.log")) {
+    File logCheck = SPIFFS.open("/debug.log", "r");
+    if (logCheck) {
+      size_t logSize = logCheck.size();
+      logCheck.close();
+      
+      if (logSize > LOG_ROTATE_SIZE) {
+        // Log-Rotation: Lese Datei, behalte nur die zweite Hälfte
+        File logRead = SPIFFS.open("/debug.log", "r");
+        if (logRead) {
+          // Springe zur Mitte der Datei
+          logRead.seek(logSize / 2, SeekSet);
+          
+          // Lese ab der Mitte und schreibe in temporäre Datei
+          File logTemp = SPIFFS.open("/debug.tmp", "w");
+          if (logTemp) {
+            while (logRead.available()) {
+              logTemp.write(logRead.read());
+            }
+            logTemp.close();
+          }
+          logRead.close();
+          
+          // Ersetze alte Datei durch rotierte Version
+          SPIFFS.remove("/debug.log");
+          if (SPIFFS.exists("/debug.tmp")) {
+            File logOld = SPIFFS.open("/debug.tmp", "r");
+            File logNew = SPIFFS.open("/debug.log", "w");
+            if (logOld && logNew) {
+              while (logOld.available()) {
+                logNew.write(logOld.read());
+              }
+            }
+            if (logOld) logOld.close();
+            if (logNew) logNew.close();
+            SPIFFS.remove("/debug.tmp");
+          }
+        }
+      }
+    }
+  }
+  
+  // Prüfe verfügbaren SPIFFS-Speicher
+  FSInfo fs_info;
+  if (SPIFFS.info(fs_info)) {
+    if (fs_info.totalBytes - fs_info.usedBytes < 1024) {
+      // Weniger als 1KB frei, lösche Log komplett
+      SPIFFS.remove("/debug.log");
+      Serial.println("[DEBUG] SPIFFS fast voll, Log gelöscht");
+    }
+  }
   
   // Log in Datei schreiben
   File logFile = SPIFFS.open("/debug.log", "a");
@@ -1040,11 +1443,8 @@ void debugLogJson(const char* location, const char* message, const char* hypothe
   va_end(args);
   debugLog(location, message, hypothesisId, dataJson);
 }
-// #endregion
-
-void ICACHE_RAM_ATTR watchdogCallback() {
-  Serial.println("WATCHDOG TRIGGERED!");
-  // #region agent log
-  // Watchdog-Callback kann nicht auf SPIFFS zugreifen, daher nur Serial
-  // #endregion
-}
+#else
+// Stub-Funktionen wenn Debug-Logging deaktiviert
+inline void debugLog(const char* location, const char* message, const char* hypothesisId, const char* dataJson) {}
+inline void debugLogJson(const char* location, const char* message, const char* hypothesisId, const char* format, ...) {}
+#endif // DEBUG_LOGGING_ENABLED

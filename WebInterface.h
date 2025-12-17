@@ -15,40 +15,19 @@ const char WEB_INTERFACE_HTML[] PROGMEM = R"rawl(
     :root {
       color-scheme: dark;
       --bg: radial-gradient(circle at top, #1d1f2f, #090b14 55%, #05060b 100%);
-      --card-bg: rgba(18, 20, 32, 0.9);
-      --card-bg-hover: rgba(18, 20, 32, 0.95);
+      --card-bg: rgba(18, 20, 32, 0.85);
       --accent: #5bc0eb;
       --accent-strong: #4aa3c9;
-      --accent-hover: #6dd0f5;
-      --success: #4ade80;
-      --warning: #fbbf24;
-      --error: #f87171;
       --text: #f5f7ff;
-      --text-secondary: #d1d5e8;
       --muted: #a8adc4;
-      --muted-dark: #6b7280;
-      --border: rgba(255, 255, 255, 0.1);
-      --border-light: rgba(255, 255, 255, 0.15);
-      --shadow: 0 8px 24px rgba(5, 8, 16, 0.4);
-      --shadow-lg: 0 16px 48px rgba(5, 8, 16, 0.6);
-      --shadow-sm: 0 2px 8px rgba(5, 8, 16, 0.3);
-      --radius: 12px;
-      --radius-sm: 8px;
-      --radius-lg: 16px;
-      /* 8px Grid System */
-      --spacing-1: 0.5rem;   /* 8px */
-      --spacing-2: 1rem;     /* 16px */
-      --spacing-3: 1.5rem;   /* 24px */
-      --spacing-4: 2rem;     /* 32px */
-      --spacing-5: 2.5rem;   /* 40px */
-      --spacing-6: 3rem;     /* 48px */
+      --border: rgba(255, 255, 255, 0.08);
+      --shadow: 0 18px 45px rgba(5, 8, 16, 0.55);
+      --radius: 16px;
       font-family: "Inter", "Segoe UI", system-ui, -apple-system, sans-serif;
     }
 
     * {
       box-sizing: border-box;
-      margin: 0;
-      padding: 0;
     }
 
     body {
@@ -57,423 +36,75 @@ const char WEB_INTERFACE_HTML[] PROGMEM = R"rawl(
       display: flex;
       align-items: center;
       justify-content: center;
-      padding: var(--spacing-3) var(--spacing-2);
+      padding: 4vw 5vw;
       background: var(--bg);
       color: var(--text);
-      line-height: 1.6;
-      font-size: 1rem;
     }
 
     main {
-      width: min(1000px, 100%);
+      width: min(900px, 100%);
       max-width: 95vw;
       background: var(--card-bg);
-      border-radius: var(--radius-lg);
-      box-shadow: var(--shadow-lg);
+      border-radius: var(--radius);
+      box-shadow: var(--shadow);
       border: 1px solid var(--border);
-      backdrop-filter: blur(16px);
-      padding: clamp(var(--spacing-3), 4vw, var(--spacing-5));
-    }
-
-    /* Typography Hierarchy */
-    h1 {
-      margin: 0;
-      font-size: clamp(1.75rem, 4vw, 2.25rem);
-      letter-spacing: -0.02em;
-      font-weight: 700;
-      line-height: 1.2;
-      color: var(--text);
-    }
-
-    h2 {
-      margin: 0;
-      font-size: 1.25rem;
-      font-weight: 700;
-      line-height: 1.3;
-      color: var(--text);
-    }
-
-    h3 {
-      margin: 0;
-      font-size: 1.1rem;
-      font-weight: 600;
-      line-height: 1.4;
-      color: var(--text);
-    }
-
-    .subtitle {
-      color: var(--muted);
-      font-size: 0.875rem;
-      font-weight: 400;
-      line-height: 1.5;
-      margin-top: var(--spacing-1);
-    }
-
-    .caption {
-      font-size: 0.75rem;
-      color: var(--muted);
-      line-height: 1.4;
+      backdrop-filter: blur(12px);
+      padding: clamp(1.5rem, 3vw, 2.5rem);
     }
 
     header {
       display: flex;
       flex-direction: column;
-      gap: var(--spacing-1);
+      gap: 0.4rem;
       text-align: left;
-      margin-bottom: var(--spacing-4);
+      margin-bottom: 1.75rem;
     }
 
-    /* Status Dashboard - Enhanced */
-    .status-dashboard {
-      display: grid;
-      grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
-      gap: var(--spacing-2);
-      margin-bottom: var(--spacing-4);
+    h1 {
+      margin: 0;
+      font-size: clamp(1.8rem, 4vw, 2.4rem);
+      letter-spacing: 0.02em;
     }
 
-    .status-item {
-      display: flex;
-      flex-direction: column;
-      gap: var(--spacing-1);
-      padding: var(--spacing-2);
-      border-radius: var(--radius);
-      border: 1px solid var(--border);
-      background: rgba(9, 10, 18, 0.4);
-      transition: all 0.25s cubic-bezier(0.4, 0, 0.2, 1);
-      position: relative;
-      overflow: hidden;
-    }
-
-    .status-item::before {
-      content: '';
-      position: absolute;
-      top: 0;
-      left: 0;
-      right: 0;
-      height: 2px;
-      background: linear-gradient(90deg, var(--accent), var(--accent-strong));
-      opacity: 0;
-      transition: opacity 0.25s ease;
-    }
-
-    .status-item:hover {
-      transform: translateY(-2px);
-      box-shadow: var(--shadow);
-      border-color: var(--border-light);
-      background: rgba(9, 10, 18, 0.5);
-    }
-
-    .status-item:hover::before {
-      opacity: 1;
-    }
-
-    .status-label {
-      font-size: 0.6875rem;
+    .subtitle {
       color: var(--muted);
-      text-transform: uppercase;
-      letter-spacing: 0.08em;
-      font-weight: 600;
-      display: flex;
-      align-items: center;
-      gap: var(--spacing-1);
+      font-size: 0.95rem;
     }
 
-    .status-label span:first-child {
-      font-size: 1rem;
-      filter: grayscale(0.3);
-    }
-
-    .status-value {
-      font-size: 1.375rem;
-      font-weight: 700;
-      color: var(--text);
-      font-variant-numeric: tabular-nums;
-      transition: color 0.2s ease;
-    }
-
-    .status-badge {
-      display: inline-flex;
-      align-items: center;
-      gap: 0.375rem;
-      padding: 0.375rem 0.625rem;
-      border-radius: var(--radius-sm);
-      font-size: 0.6875rem;
-      font-weight: 600;
-      text-transform: uppercase;
-      letter-spacing: 0.05em;
-      transition: all 0.2s ease;
-      position: relative;
-    }
-
-    .status-badge::before {
-      content: '';
-      width: 6px;
-      height: 6px;
-      border-radius: 50%;
-      background: currentColor;
-      opacity: 0.8;
-      animation: pulse 2s ease-in-out infinite;
-    }
-
-    @keyframes pulse {
-      0%, 100% { opacity: 0.8; transform: scale(1); }
-      50% { opacity: 1; transform: scale(1.1); }
-    }
-
-    .badge-success {
-      background: rgba(74, 222, 128, 0.15);
-      color: var(--success);
-      border: 1px solid rgba(74, 222, 128, 0.25);
-    }
-
-    .badge-warning {
-      background: rgba(251, 191, 36, 0.15);
-      color: var(--warning);
-      border: 1px solid rgba(251, 191, 36, 0.25);
-    }
-
-    .badge-error {
-      background: rgba(248, 113, 113, 0.15);
-      color: var(--error);
-      border: 1px solid rgba(248, 113, 113, 0.25);
-    }
-
-    .badge-info {
-      background: rgba(91, 192, 235, 0.15);
-      color: var(--accent);
-      border: 1px solid rgba(91, 192, 235, 0.25);
-    }
-
-    .badge-neutral {
-      background: rgba(168, 173, 196, 0.1);
-      color: var(--muted);
-      border: 1px solid rgba(168, 173, 196, 0.15);
-    }
-
-    .badge-neutral::before {
-      display: none;
-    }
-
-    /* Card Styles */
     .card {
       display: flex;
       flex-direction: column;
-      gap: var(--spacing-3);
-      padding: var(--spacing-3);
-      border-radius: var(--radius);
+      gap: 0.85rem;
+      padding: 1.1rem 1.25rem;
+      border-radius: calc(var(--radius) - 4px);
       border: 1px solid var(--border);
-      background: rgba(9, 10, 18, 0.4);
-      margin-bottom: var(--spacing-3);
-      transition: border-color 0.2s ease, background 0.2s ease;
+      background: rgba(9, 10, 18, 0.35);
     }
 
-    .card:hover {
-      border-color: var(--border-light);
-      background: rgba(9, 10, 18, 0.5);
-    }
-
-    .card-header {
-      display: flex;
-      align-items: center;
-      justify-content: space-between;
-      margin-bottom: var(--spacing-1);
-    }
-
-    .card-title {
-      font-size: 1.125rem;
-      font-weight: 700;
-      margin: 0;
-      color: var(--text);
-    }
-
-    /* Accordion - Enhanced */
-    .accordion {
-      border: 1px solid var(--border);
-      border-radius: var(--radius);
-      background: rgba(9, 10, 18, 0.4);
-      margin-bottom: var(--spacing-2);
-      overflow: hidden;
-      transition: border-color 0.2s ease, background 0.2s ease;
-    }
-
-    .accordion:hover {
-      border-color: var(--border-light);
-    }
-
-    .accordion-header {
-      display: flex;
-      align-items: center;
-      justify-content: space-between;
-      padding: var(--spacing-2) var(--spacing-3);
-      cursor: pointer;
-      user-select: none;
-      transition: background 0.2s ease;
-      background: rgba(18, 20, 32, 0.3);
-    }
-
-    .accordion-header:hover,
-    .accordion-header:focus-visible {
-      background: rgba(18, 20, 32, 0.5);
-      outline: none;
-    }
-
-    .accordion-header:focus-visible {
-      box-shadow: inset 0 0 0 2px var(--accent);
-    }
-
-    .accordion-header h3 {
-      margin: 0;
-      font-size: 1rem;
-      font-weight: 600;
-      color: var(--text);
-    }
-
-    .accordion-icon {
-      transition: transform 0.3s cubic-bezier(0.4, 0, 0.2, 1);
-      font-size: 1rem;
-      color: var(--accent);
-      line-height: 1;
-    }
-
-    .accordion.open .accordion-icon {
-      transform: rotate(180deg);
-    }
-
-    .accordion-content {
-      max-height: 0;
-      overflow: hidden;
-      transition: max-height 0.35s cubic-bezier(0.4, 0, 0.2, 1), padding 0.35s ease;
-      padding: 0 var(--spacing-3);
-    }
-
-    .accordion.open .accordion-content {
-      max-height: 3000px;
-      padding: var(--spacing-3);
-    }
-
-    /* Effect Cards - Enhanced */
-    .effect-grid {
-      display: grid;
-      grid-template-columns: repeat(auto-fill, minmax(120px, 1fr));
-      gap: var(--spacing-2);
-      margin-top: var(--spacing-2);
-    }
-
-    .effect-card {
-      aspect-ratio: 1;
-      display: flex;
-      flex-direction: column;
-      align-items: center;
-      justify-content: center;
-      padding: var(--spacing-2);
-      border-radius: var(--radius);
-      border: 2px solid var(--border);
-      background: rgba(18, 20, 32, 0.6);
-      cursor: pointer;
-      transition: all 0.25s cubic-bezier(0.4, 0, 0.2, 1);
-      text-align: center;
-      font-weight: 600;
-      color: var(--text);
-      position: relative;
-      overflow: hidden;
-    }
-
-    .effect-card::before {
-      content: '';
-      position: absolute;
-      top: 0;
-      left: 0;
-      right: 0;
-      bottom: 0;
-      background: linear-gradient(120deg, var(--accent), var(--accent-strong));
-      opacity: 0;
-      transition: opacity 0.25s ease;
-    }
-
-    .effect-card:hover {
-      transform: translateY(-4px) scale(1.02);
-      border-color: var(--accent);
-      box-shadow: 0 8px 24px rgba(91, 192, 235, 0.25);
-    }
-
-    .effect-card:hover::before {
-      opacity: 0.1;
-    }
-
-    .effect-card:focus-visible {
-      outline: none;
-      border-color: var(--accent);
-      box-shadow: 0 0 0 3px rgba(91, 192, 235, 0.3);
-    }
-
-    .effect-card.active {
-      border-color: var(--accent);
-      background: rgba(91, 192, 235, 0.15);
-      box-shadow: 0 0 0 3px rgba(91, 192, 235, 0.2), 0 4px 12px rgba(91, 192, 235, 0.15);
-    }
-
-    .effect-card.active::before {
-      opacity: 0.15;
-    }
-
-    .effect-card span {
-      position: relative;
-      z-index: 1;
-    }
-
-    /* Form Elements - Enhanced */
     label {
       font-weight: 600;
       display: block;
-      margin-bottom: var(--spacing-1);
-      color: var(--text);
-      font-size: 0.875rem;
     }
 
     select,
     input[type="text"],
-    input[type="number"],
-    input[type="password"],
     button {
       width: 100%;
-      padding: 0.75rem 1rem;
-      border-radius: var(--radius-sm);
+      padding: 0.6rem 0.75rem;
+      border-radius: 10px;
       border: 1px solid var(--border);
-      background: rgba(18, 20, 32, 0.7);
+      background: rgba(18, 20, 32, 0.65);
       color: var(--text);
-      font-size: 0.9375rem;
-      font-family: inherit;
-      transition: all 0.2s ease;
-      min-height: 44px;
+      font-size: 0.95rem;
+      transition: border 0.2s ease, background 0.2s ease, transform 0.1s ease;
     }
 
     select:focus,
     input[type="text"]:focus,
-    input[type="number"]:focus,
-    input[type="password"]:focus {
+    button:focus {
       outline: none;
       border-color: var(--accent);
       box-shadow: 0 0 0 3px rgba(91, 192, 235, 0.2);
-      background: rgba(18, 20, 32, 0.85);
-    }
-
-    input:invalid {
-      border-color: var(--error);
-    }
-
-    input:invalid:focus {
-      box-shadow: 0 0 0 3px rgba(248, 113, 113, 0.2);
-    }
-
-    .input-error {
-      color: var(--error);
-      font-size: 0.75rem;
-      margin-top: 0.25rem;
-      display: none;
-    }
-
-    input:invalid ~ .input-error {
-      display: block;
     }
 
     button {
@@ -483,79 +114,41 @@ const char WEB_INTERFACE_HTML[] PROGMEM = R"rawl(
       background: linear-gradient(120deg, var(--accent), var(--accent-strong));
       border: none;
       color: #05060b;
-      position: relative;
-      overflow: hidden;
     }
 
-    button::before {
-      content: '';
-      position: absolute;
-      top: 0;
-      left: -100%;
-      width: 100%;
-      height: 100%;
-      background: linear-gradient(90deg, transparent, rgba(255, 255, 255, 0.2), transparent);
-      transition: left 0.5s ease;
-    }
-
-    button:hover:not(:disabled)::before {
-      left: 100%;
-    }
-
-    button:hover:not(:disabled) {
+    button:hover {
       transform: translateY(-1px);
-      box-shadow: 0 8px 20px rgba(75, 160, 214, 0.3);
-      background: linear-gradient(120deg, var(--accent-hover), var(--accent));
+      box-shadow: 0 10px 25px rgba(75, 160, 214, 0.28);
     }
 
-    button:active:not(:disabled) {
-      transform: translateY(0);
+    .grid {
+      display: grid;
+      gap: 1.3rem;
     }
 
-    button:focus-visible {
-      outline: none;
-      box-shadow: 0 0 0 3px rgba(91, 192, 235, 0.4);
+    .status-row {
+      display: flex;
+      justify-content: space-between;
+      gap: 0.8rem;
+      flex-wrap: wrap;
+      font-size: 0.95rem;
+      color: var(--muted);
     }
 
-    button:disabled {
-      opacity: 0.6;
-      cursor: not-allowed;
-      transform: none;
+    .status-row span {
+      color: var(--text);
+      font-weight: 600;
     }
 
-    button.loading {
-      color: transparent;
-      pointer-events: none;
-    }
-
-    button.loading::after {
-      content: '';
-      position: absolute;
-      top: 50%;
-      left: 50%;
-      transform: translate(-50%, -50%);
-      width: 20px;
-      height: 20px;
-      border: 2px solid rgba(5, 6, 11, 0.3);
-      border-top-color: #05060b;
-      border-radius: 50%;
-      animation: spin 0.6s linear infinite;
-    }
-
-    @keyframes spin {
-      to { transform: translate(-50%, -50%) rotate(360deg); }
-    }
-
-    /* Range Controls - Enhanced */
     .range-wrapper {
       display: flex;
       flex-direction: column;
-      gap: var(--spacing-1);
+      gap: 0.5rem;
     }
 
     .range-control {
       display: flex;
-      gap: var(--spacing-2);
+      gap: 0.75rem;
       align-items: center;
     }
 
@@ -564,254 +157,80 @@ const char WEB_INTERFACE_HTML[] PROGMEM = R"rawl(
     }
 
     .range-control input[type="number"] {
-      width: 90px;
-      padding: 0.625rem 0.75rem;
-      border-radius: var(--radius-sm);
+      width: 85px;
+      padding: 0.5rem 0.6rem;
+      border-radius: 8px;
       border: 1px solid var(--border);
-      background: rgba(18, 20, 32, 0.7);
+      background: rgba(18, 20, 32, 0.65);
       color: var(--text);
-      font-size: 0.9375rem;
+      font-size: 0.95rem;
       font-weight: 600;
       text-align: center;
-      min-height: 44px;
+      transition: border 0.2s ease;
+    }
+
+    .range-control input[type="number"]:focus {
+      outline: none;
+      border-color: var(--accent);
+      box-shadow: 0 0 0 3px rgba(91, 192, 235, 0.2);
     }
 
     input[type="range"] {
       -webkit-appearance: none;
       width: 100%;
-      height: 8px;
+      height: 6px;
       border-radius: 999px;
       background: rgba(255, 255, 255, 0.1);
       outline: none;
       transition: background 0.2s ease;
     }
 
-    input[type="range"]:hover {
-      background: rgba(255, 255, 255, 0.15);
-    }
-
-    input[type="range"]:focus-visible {
-      box-shadow: 0 0 0 3px rgba(91, 192, 235, 0.2);
-    }
-
     input[type="range"]::-webkit-slider-thumb {
       -webkit-appearance: none;
       appearance: none;
-      width: 20px;
-      height: 20px;
+      width: 18px;
+      height: 18px;
       border-radius: 50%;
       background: linear-gradient(120deg, var(--accent), var(--accent-strong));
       cursor: pointer;
-      box-shadow: 0 2px 8px rgba(91, 192, 235, 0.4);
-      transition: transform 0.2s ease, box-shadow 0.2s ease;
-    }
-
-    input[type="range"]::-webkit-slider-thumb:hover {
-      transform: scale(1.15);
-      box-shadow: 0 3px 12px rgba(91, 192, 235, 0.5);
+      box-shadow: 0 2px 10px rgba(91, 192, 235, 0.55);
     }
 
     input[type="range"]::-moz-range-thumb {
-      width: 20px;
-      height: 20px;
+      width: 18px;
+      height: 18px;
       border-radius: 50%;
       border: none;
       background: linear-gradient(120deg, var(--accent), var(--accent-strong));
       cursor: pointer;
-      box-shadow: 0 2px 8px rgba(91, 192, 235, 0.4);
-      transition: transform 0.2s ease, box-shadow 0.2s ease;
+      box-shadow: 0 2px 10px rgba(91, 192, 235, 0.55);
     }
 
-    input[type="range"]::-moz-range-thumb:hover {
-      transform: scale(1.15);
-      box-shadow: 0 3px 12px rgba(91, 192, 235, 0.5);
-    }
-
-    /* Brightness Preview - Enhanced */
-    .brightness-preview {
-      width: 100%;
-      height: 10px;
-      border-radius: 999px;
-      background: linear-gradient(to right, 
-        rgba(255, 255, 255, 0.08) 0%,
-        rgba(91, 192, 235, 0.25) 50%,
-        rgba(91, 192, 235, 0.5) 100%);
-      margin-top: var(--spacing-1);
-      position: relative;
-      overflow: hidden;
-      border: 1px solid var(--border);
-    }
-
-    .brightness-preview::after {
-      content: '';
-      position: absolute;
-      top: 0;
-      left: 0;
-      height: 100%;
-      width: var(--brightness-percent, 50%);
-      background: linear-gradient(120deg, var(--accent), var(--accent-strong));
-      border-radius: 999px;
-      transition: width 0.3s cubic-bezier(0.4, 0, 0.2, 1);
-      box-shadow: 0 0 8px rgba(91, 192, 235, 0.4);
-    }
-
-    /* Checkbox - Enhanced */
-    .checkbox-wrapper {
-      display: flex;
-      align-items: center;
-      gap: var(--spacing-1);
-      cursor: pointer;
-      user-select: none;
-      padding: var(--spacing-1) 0;
-      transition: opacity 0.2s ease;
-    }
-
-    .checkbox-wrapper:hover {
-      opacity: 0.9;
-    }
-
-    .checkbox-wrapper input[type="checkbox"] {
-      width: 20px;
-      height: 20px;
-      cursor: pointer;
-      accent-color: var(--accent);
-    }
-
-    .checkbox-wrapper:focus-within {
-      outline: 2px solid var(--accent);
-      outline-offset: 2px;
-      border-radius: 4px;
-    }
-
-    /* Grid */
-    .grid {
-      display: grid;
-      gap: var(--spacing-2);
-    }
-
-    /* Toast Notifications - Enhanced */
-    .toast-container {
-      position: fixed;
-      top: var(--spacing-3);
-      right: var(--spacing-3);
-      z-index: 1000;
-      display: flex;
-      flex-direction: column;
-      gap: var(--spacing-1);
-      max-width: 400px;
-      pointer-events: none;
-    }
-
-    .toast {
-      padding: var(--spacing-2) var(--spacing-3);
-      border-radius: var(--radius);
-      background: var(--card-bg);
-      border: 1px solid var(--border);
-      box-shadow: var(--shadow-lg);
-      color: var(--text);
-      font-size: 0.875rem;
-      animation: toastSlideIn 0.3s cubic-bezier(0.4, 0, 0.2, 1);
-      pointer-events: auto;
-      display: flex;
-      align-items: center;
-      gap: var(--spacing-1);
-      position: relative;
-    }
-
-    .toast::before {
-      content: '';
-      position: absolute;
-      left: 0;
-      top: 0;
-      bottom: 0;
-      width: 4px;
-      border-radius: var(--radius) 0 0 var(--radius);
-    }
-
-    .toast.success::before {
-      background: var(--success);
-    }
-
-    .toast.error::before {
-      background: var(--error);
-    }
-
-    .toast.info::before {
-      background: var(--accent);
-    }
-
-    @keyframes toastSlideIn {
-      from {
-        transform: translateX(calc(100% + var(--spacing-3)));
-        opacity: 0;
-      }
-      to {
-        transform: translateX(0);
-        opacity: 1;
-      }
+    .range-value {
+      font-variant-numeric: tabular-nums;
+      font-size: 1.15rem;
+      font-weight: 600;
+      color: var(--accent);
+      align-self: flex-end;
     }
 
     footer {
-      margin-top: var(--spacing-4);
+      margin-top: 1.75rem;
       text-align: center;
-      font-size: 0.8125rem;
+      font-size: 0.85rem;
       color: var(--muted);
-      padding-top: var(--spacing-3);
-      border-top: 1px solid var(--border);
     }
 
-    /* Responsive - Enhanced */
+    #statusMessage {
+      margin-top: 0.5rem;
+      font-size: 0.9rem;
+      min-height: 1.1rem;
+      color: var(--muted);
+    }
+
     @media (min-width: 520px) {
       .grid {
         grid-template-columns: repeat(2, minmax(0, 1fr));
-      }
-    }
-
-    @media (min-width: 768px) {
-      .status-dashboard {
-        grid-template-columns: repeat(4, 1fr);
-      }
-      
-      .effect-grid {
-        grid-template-columns: repeat(auto-fill, minmax(140px, 1fr));
-      }
-    }
-
-    @media (max-width: 480px) {
-      .status-dashboard {
-        grid-template-columns: repeat(2, 1fr);
-      }
-      
-      .effect-grid {
-        grid-template-columns: repeat(2, 1fr);
-      }
-
-      .toast-container {
-        left: var(--spacing-2);
-        right: var(--spacing-2);
-        max-width: none;
-      }
-    }
-
-    /* Hide old status message */
-    #statusMessage {
-      display: none;
-    }
-
-    /* Smooth transitions for status updates */
-    .status-value,
-    .status-badge {
-      animation: fadeIn 0.3s ease;
-    }
-
-    @keyframes fadeIn {
-      from {
-        opacity: 0;
-        transform: translateY(-4px);
-      }
-      to {
-        opacity: 1;
-        transform: translateY(0);
       }
     }
   </style>
@@ -823,303 +242,220 @@ const char WEB_INTERFACE_HTML[] PROGMEM = R"rawl(
       <p class="subtitle">LED-Matrix Steuerung &mdash; modernes Web-Dashboard</p>
     </header>
 
-    <!-- Status Dashboard -->
-    <section class="status-dashboard" role="region" aria-label="System Status">
-      <div class="status-item">
-        <div class="status-label">
-          <span>🕐</span>
-          <span>Zeit</span>
-        </div>
-        <div class="status-value" id="time" aria-live="polite">--:--:--</div>
+    <section class="card">
+      <div class="status-row">
+        <div>Zeit <span id="time">--:--:--</span></div>
+        <div>Effekt <span id="currentEffect">-</span></div>
       </div>
-      <div class="status-item">
-        <div class="status-label">
-          <span>✨</span>
-          <span>Effekt</span>
-        </div>
-        <div class="status-value" id="currentEffect">-</div>
+      <div class="status-row">
+        <div>Helligkeit <span id="currentBrightness">0</span></div>
+        <div>Zeitzone <span id="currentTimezone">-</span></div>
       </div>
-      <div class="status-item">
-        <div class="status-label">
-          <span>💡</span>
-          <span>Helligkeit</span>
-        </div>
-        <div class="status-value" id="currentBrightness">0</div>
+      <div class="status-row">
+        <div>Lichtsensor <span id="sensorValue">0</span></div>
+        <div>Auto-Helligkeit <span id="autoStatus">Aus</span></div>
       </div>
-      <div class="status-item">
-        <div class="status-label">
-          <span>🌍</span>
-          <span>Zeitzone</span>
-        </div>
-        <div class="status-value" id="currentTimezone" style="font-size: 0.875rem;">-</div>
+      <div class="status-row">
+        <div>MQTT <span id="mqttStatus">Aus</span></div>
+        <div>Präsenz <span id="presenceStatus">-</span></div>
       </div>
-      <div class="status-item">
-        <div class="status-label">
-          <span>📊</span>
-          <span>Lichtsensor</span>
-        </div>
-        <div class="status-value" id="sensorValue">0</div>
+      <div class="status-row">
+        <div>Display <span id="displayStatus">An</span></div>
+        <div>OTA <span id="otaStatus">-</span></div>
       </div>
-      <div class="status-item">
-        <div class="status-label">
-          <span>⚙️</span>
-          <span>Auto-Helligkeit</span>
-        </div>
-        <div id="autoStatus" class="status-badge badge-neutral">Aus</div>
-      </div>
-      <div class="status-item">
-        <div class="status-label">
-          <span>📡</span>
-          <span>MQTT</span>
-        </div>
-        <div id="mqttStatus" class="status-badge badge-neutral">Aus</div>
-      </div>
-      <div class="status-item">
-        <div class="status-label">
-          <span>👤</span>
-          <span>Präsenz</span>
-        </div>
-        <div id="presenceStatus" class="status-badge badge-neutral">-</div>
-      </div>
-      <div class="status-item">
-        <div class="status-label">
-          <span>🖥️</span>
-          <span>Display</span>
-        </div>
-        <div id="displayStatus" class="status-badge badge-success">An</div>
+      <div class="status-row">
+        <div>IP-Adresse <span id="ipAddress" style="font-size: 0.9rem;">-</span></div>
       </div>
     </section>
 
-    <!-- Effect Selection -->
-    <section class="card" role="region" aria-label="Effekt Auswahl">
-      <div class="card-header">
-        <h2 class="card-title">Effekt auswählen</h2>
-      </div>
-      <div class="effect-grid" role="group" aria-label="Verfügbare Effekte">
-        <div class="effect-card" data-effect="snake" role="button" tabindex="0" aria-label="Snake Effekt">
-          <span>Snake</span>
+    <div class="grid">
+      <section class="card">
+        <div>
+          <label for="effectSelect">Effekt auswählen</label>
+          <select id="effectSelect">
+            <option value="snake">Snake</option>
+            <option value="clock">Clock</option>
+            <option value="rain">Rain</option>
+            <option value="bounce">Bounce</option>
+            <option value="stars">Stars</option>
+            <option value="lines">Lines</option>
+            <option value="pulse">Pulse</option>
+            <option value="waves">Waves</option>
+            <option value="spiral">Spiral</option>
+            <option value="fire">Fire</option>
+            <option value="plasma">Plasma</option>
+            <option value="ripple">Ripple</option>
+            <option value="sandclock">Sand Clock</option>
+          </select>
         </div>
-        <div class="effect-card" data-effect="clock" role="button" tabindex="0" aria-label="Clock Effekt">
-          <span>Clock</span>
+        <div>
+          <label for="tz">Zeitzone</label>
+          <select id="tz">
+            <option value="CET-1CEST,M3.5.0,M10.5.0/3">Europa/Berlin (CET)</option>
+            <option value="GMT0BST,M3.5.0/1,M10.5.0">Europa/London (GMT/BST)</option>
+            <option value="WET0WEST,M3.5.0/1,M10.5.0">Europa/Lissabon (WET/WEST)</option>
+            <option value="EET-2EEST,M3.5.0/3,M10.5.0/4">Europa/Helsinki (EET)</option>
+            <option value="EST5EDT,M3.2.0,M11.1.0">Amerika/New York (EST)</option>
+            <option value="CST6CDT,M3.2.0,M11.1.0">Amerika/Chicago (CST)</option>
+            <option value="MST7MDT,M3.2.0,M11.1.0">Amerika/Denver (MST)</option>
+            <option value="PST8PDT,M3.2.0,M11.1.0">Amerika/Los Angeles (PST)</option>
+            <option value="AEST-10AEDT,M10.1.0,M4.1.0/3">Australien/Sydney (AEST)</option>
+            <option value="JST-9">Asien/Tokio (JST)</option>
+            <option value="CST-8">Asien/Shanghai (CST)</option>
+            <option value="IST-5:30">Asien/Indien (IST)</option>
+            <option value="UTC0">UTC</option>
+          </select>
+          <button id="setTz">Zeitzone aktualisieren</button>
         </div>
-        <div class="effect-card" data-effect="rain" role="button" tabindex="0" aria-label="Rain Effekt">
-          <span>Rain</span>
-        </div>
-        <div class="effect-card" data-effect="bounce" role="button" tabindex="0" aria-label="Bounce Effekt">
-          <span>Bounce</span>
-        </div>
-        <div class="effect-card" data-effect="stars" role="button" tabindex="0" aria-label="Stars Effekt">
-          <span>Stars</span>
-        </div>
-        <div class="effect-card" data-effect="lines" role="button" tabindex="0" aria-label="Lines Effekt">
-          <span>Lines</span>
-        </div>
-        <div class="effect-card" data-effect="pulse" role="button" tabindex="0" aria-label="Pulse Effekt">
-          <span>Pulse</span>
-        </div>
-        <div class="effect-card" data-effect="waves" role="button" tabindex="0" aria-label="Waves Effekt">
-          <span>Waves</span>
-        </div>
-        <div class="effect-card" data-effect="spiral" role="button" tabindex="0" aria-label="Spiral Effekt">
-          <span>Spiral</span>
-        </div>
-        <div class="effect-card" data-effect="fire" role="button" tabindex="0" aria-label="Fire Effekt">
-          <span>Fire</span>
-        </div>
-        <div class="effect-card" data-effect="plasma" role="button" tabindex="0" aria-label="Plasma Effekt">
-          <span>Plasma</span>
-        </div>
-        <div class="effect-card" data-effect="ripple" role="button" tabindex="0" aria-label="Ripple Effekt">
-          <span>Ripple</span>
-        </div>
-        <div class="effect-card" data-effect="sandclock" role="button" tabindex="0" aria-label="Sand Clock Effekt">
-          <span>Sand Clock</span>
-        </div>
-      </div>
-      <div style="margin-top: var(--spacing-2);">
-        <label for="tz">Zeitzone</label>
-        <select id="tz" aria-label="Zeitzone auswählen">
-          <option value="CET-1CEST,M3.5.0,M10.5.0/3">Europa/Berlin (CET)</option>
-          <option value="GMT0BST,M3.5.0/1,M10.5.0">Europa/London (GMT/BST)</option>
-          <option value="WET0WEST,M3.5.0/1,M10.5.0">Europa/Lissabon (WET/WEST)</option>
-          <option value="EET-2EEST,M3.5.0/3,M10.5.0/4">Europa/Helsinki (EET)</option>
-          <option value="EST5EDT,M3.2.0,M11.1.0">Amerika/New York (EST)</option>
-          <option value="CST6CDT,M3.2.0,M11.1.0">Amerika/Chicago (CST)</option>
-          <option value="MST7MDT,M3.2.0,M11.1.0">Amerika/Denver (MST)</option>
-          <option value="PST8PDT,M3.2.0,M11.1.0">Amerika/Los Angeles (PST)</option>
-          <option value="AEST-10AEDT,M10.1.0,M4.1.0/3">Australien/Sydney (AEST)</option>
-          <option value="JST-9">Asien/Tokio (JST)</option>
-          <option value="CST-8">Asien/Shanghai (CST)</option>
-          <option value="IST-5:30">Asien/Indien (IST)</option>
-          <option value="UTC0">UTC</option>
-        </select>
-        <button id="setTz" aria-label="Zeitzone aktualisieren">Zeitzone aktualisieren</button>
-      </div>
-    </section>
+      </section>
 
-    <!-- Manual Brightness -->
-    <section class="card" role="region" aria-label="Manuelle Helligkeit">
-      <div class="card-header">
-        <h2 class="card-title">Helligkeit (Manuell)</h2>
-      </div>
-      <div class="range-wrapper">
-        <label for="brightness">Helligkeit</label>
-        <div class="range-control">
-          <input id="brightness" type="range" min="0" max="1023" step="1" aria-label="Helligkeit einstellen">
-          <input id="brightnessInput" type="number" min="0" max="1023" step="1" value="0" aria-label="Helligkeit numerisch eingeben" required>
-        </div>
-        <div class="brightness-preview" style="--brightness-percent: 50%" id="brightnessPreview"></div>
-        <span class="input-error">Bitte einen Wert zwischen 0 und 1023 eingeben</span>
-      </div>
-      <button id="saveBrightness" aria-label="Helligkeit speichern">Helligkeit speichern</button>
-    </section>
-
-    <!-- Auto Brightness Accordion -->
-    <div class="accordion" role="region" aria-label="Automatische Helligkeit">
-      <div class="accordion-header" role="button" tabindex="0" aria-expanded="false" aria-controls="autoBrightnessContent">
-        <h3>Automatische Helligkeit</h3>
-        <span class="accordion-icon" aria-hidden="true">▼</span>
-      </div>
-      <div class="accordion-content" id="autoBrightnessContent">
-        <label class="checkbox-wrapper">
-          <input type="checkbox" id="autoEnabled" aria-label="Auto-Helligkeit aktivieren">
-          <span>Auto-Helligkeit aktivieren</span>
-        </label>
-        <div class="grid" style="margin-top: var(--spacing-2);">
-          <div class="range-wrapper">
-            <label for="minBrightness">Min. Helligkeit</label>
-            <div class="range-control">
-              <input id="minBrightness" type="range" min="0" max="1023" step="1" aria-label="Minimale Helligkeit">
-              <input id="minBrightnessInput" type="number" min="0" max="1023" step="1" value="0" aria-label="Minimale Helligkeit numerisch" required>
-            </div>
-            <span class="input-error">Bitte einen Wert zwischen 0 und 1023 eingeben</span>
-          </div>
-          <div class="range-wrapper">
-            <label for="maxBrightness">Max. Helligkeit</label>
-            <div class="range-control">
-              <input id="maxBrightness" type="range" min="0" max="1023" step="1" aria-label="Maximale Helligkeit">
-              <input id="maxBrightnessInput" type="number" min="0" max="1023" step="1" value="0" aria-label="Maximale Helligkeit numerisch" required>
-            </div>
-            <span class="input-error">Bitte einen Wert zwischen 0 und 1023 eingeben</span>
-          </div>
-          <div class="range-wrapper">
-            <label for="sensorMin">Sensor Min. (dunkel)</label>
-            <div class="range-control">
-              <input id="sensorMin" type="range" min="0" max="1023" step="1" aria-label="Sensor Minimum">
-              <input id="sensorMinInput" type="number" min="0" max="1023" step="1" value="5" aria-label="Sensor Minimum numerisch" required>
-            </div>
-            <span class="input-error">Bitte einen Wert zwischen 0 und 1023 eingeben</span>
-          </div>
-          <div class="range-wrapper">
-            <label for="sensorMax">Sensor Max. (hell)</label>
-            <div class="range-control">
-              <input id="sensorMax" type="range" min="0" max="1023" step="1" aria-label="Sensor Maximum">
-              <input id="sensorMaxInput" type="number" min="0" max="1023" step="1" value="450" aria-label="Sensor Maximum numerisch" required>
-            </div>
-            <span class="input-error">Bitte einen Wert zwischen 0 und 1023 eingeben</span>
-          </div>
-        </div>
-        <button id="saveAuto" aria-label="Auto-Brightness Einstellungen speichern">Auto-Brightness speichern</button>
-      </div>
-    </div>
-
-    <!-- MQTT Accordion -->
-    <div class="accordion" role="region" aria-label="MQTT Präsenzmelder">
-      <div class="accordion-header" role="button" tabindex="0" aria-expanded="false" aria-controls="mqttContent">
-        <h3>MQTT Präsenzmelder (Aqara)</h3>
-        <span class="accordion-icon" aria-hidden="true">▼</span>
-      </div>
-      <div class="accordion-content" id="mqttContent">
-        <label class="checkbox-wrapper">
-          <input type="checkbox" id="mqttEnabled" aria-label="MQTT aktivieren">
-          <span>MQTT aktivieren</span>
-        </label>
-        <div class="grid" style="margin-top: var(--spacing-2);">
-          <div>
-            <label for="mqttServer">MQTT Broker IP</label>
-            <input id="mqttServer" type="text" placeholder="192.168.1.100" aria-label="MQTT Broker IP Adresse" pattern="^(?:[0-9]{1,3}\.){3}[0-9]{1,3}$">
-            <span class="input-error">Bitte eine gültige IP-Adresse eingeben</span>
-          </div>
-          <div>
-            <label for="mqttPort">MQTT Port</label>
-            <input id="mqttPort" type="number" min="1" max="65535" value="1883" aria-label="MQTT Port" required>
-            <span class="input-error">Bitte einen Port zwischen 1 und 65535 eingeben</span>
-          </div>
-          <div>
-            <label for="mqttUser">MQTT User (optional)</label>
-            <input id="mqttUser" type="text" placeholder="username" aria-label="MQTT Benutzername">
-          </div>
-          <div>
-            <label for="mqttPassword">MQTT Passwort (optional)</label>
-            <input id="mqttPassword" type="password" placeholder="password" aria-label="MQTT Passwort">
-          </div>
-        </div>
-        <div style="margin-top: var(--spacing-2);">
-          <label for="mqttTopic">MQTT Topic (Präsenz)</label>
-          <input id="mqttTopic" type="text" placeholder="zigbee2mqtt/aqara_fp2" value="zigbee2mqtt/aqara_fp2" aria-label="MQTT Topic für Präsenz">
-        </div>
-        <div class="range-wrapper" style="margin-top: var(--spacing-2);">
-          <label for="presenceTimeout">Display-Timeout nach Präsenz (Sekunden)</label>
+      <section class="card">
+        <div class="range-wrapper">
+          <label for="brightness">Helligkeit (Manuell)</label>
           <div class="range-control">
-            <input id="presenceTimeout" type="range" min="10" max="600" step="10" value="300" aria-label="Präsenz Timeout">
-            <input id="presenceTimeoutInput" type="number" min="10" max="3600" step="10" value="300" aria-label="Präsenz Timeout numerisch" required>
+            <input id="brightness" type="range" min="0" max="1023" step="1">
+            <input id="brightnessInput" type="number" min="0" max="1023" step="1" value="0">
           </div>
-          <span class="input-error">Bitte einen Wert zwischen 10 und 3600 Sekunden eingeben</span>
         </div>
-        <button id="saveMqtt" aria-label="MQTT Einstellungen speichern">MQTT Einstellungen speichern</button>
-        <p class="caption" style="margin: var(--spacing-2) 0 0 0; line-height: 1.5;">
-          <strong>Hinweis:</strong> Nach dem Speichern wird die MQTT-Verbindung neu aufgebaut. Das Display schaltet sich automatisch aus, wenn keine Präsenz erkannt wird.<br>
-          <strong>Aqara FP2:</strong> Topic ist <code>zigbee2mqtt/[dein_sensor_name]</code> (ohne /presence oder /occupancy). Der Code erkennt JSON automatisch.
-        </p>
-      </div>
+        <button id="saveBrightness">Helligkeit speichern</button>
+        <div id="statusMessage"></div>
+      </section>
     </div>
+
+    <section class="card">
+      <h3 style="margin: 0 0 1rem 0; font-size: 1.2rem;">Automatische Helligkeit</h3>
+      <label style="display: flex; align-items: center; gap: 0.5rem; cursor: pointer;">
+        <input type="checkbox" id="autoEnabled" style="width: auto; cursor: pointer;">
+        <span>Auto-Helligkeit aktivieren</span>
+      </label>
+      <div class="grid" style="margin-top: 1rem;">
+        <div class="range-wrapper">
+          <label for="minBrightness">Min. Helligkeit</label>
+          <div class="range-control">
+            <input id="minBrightness" type="range" min="0" max="1023" step="1">
+            <input id="minBrightnessInput" type="number" min="0" max="1023" step="1" value="0">
+          </div>
+        </div>
+        <div class="range-wrapper">
+          <label for="maxBrightness">Max. Helligkeit</label>
+          <div class="range-control">
+            <input id="maxBrightness" type="range" min="0" max="1023" step="1">
+            <input id="maxBrightnessInput" type="number" min="0" max="1023" step="1" value="0">
+          </div>
+        </div>
+        <div class="range-wrapper">
+          <label for="sensorMin">Sensor Min. (dunkel)</label>
+          <div class="range-control">
+            <input id="sensorMin" type="range" min="0" max="1023" step="1">
+            <input id="sensorMinInput" type="number" min="0" max="1023" step="1" value="5">
+          </div>
+        </div>
+        <div class="range-wrapper">
+          <label for="sensorMax">Sensor Max. (hell)</label>
+          <div class="range-control">
+            <input id="sensorMax" type="range" min="0" max="1023" step="1">
+            <input id="sensorMaxInput" type="number" min="0" max="1023" step="1" value="450">
+          </div>
+        </div>
+      </div>
+      <button id="saveAuto">Auto-Brightness speichern</button>
+    </section>
+
+    <section class="card">
+      <h3 style="margin: 0 0 1rem 0; font-size: 1.2rem;">MQTT Präsenzmelder (Aqara)</h3>
+      <label style="display: flex; align-items: center; gap: 0.5rem; cursor: pointer;">
+        <input type="checkbox" id="mqttEnabled" style="width: auto; cursor: pointer;">
+        <span>MQTT aktivieren</span>
+      </label>
+      <div class="grid" style="margin-top: 1rem;">
+        <div>
+          <label for="mqttServer">MQTT Broker IP</label>
+          <input id="mqttServer" type="text" placeholder="192.168.1.100">
+        </div>
+        <div>
+          <label for="mqttPort">MQTT Port</label>
+          <input id="mqttPort" type="number" min="1" max="65535" value="1883">
+        </div>
+        <div>
+          <label for="mqttUser">MQTT User (optional)</label>
+          <input id="mqttUser" type="text" placeholder="username">
+        </div>
+        <div>
+          <label for="mqttPassword">MQTT Passwort (optional)</label>
+          <input id="mqttPassword" type="password" placeholder="password">
+        </div>
+      </div>
+      <div style="margin-top: 0.85rem;">
+        <label for="mqttTopic">MQTT Topic (Präsenz)</label>
+        <input id="mqttTopic" type="text" placeholder="zigbee2mqtt/aqara_fp2" value="zigbee2mqtt/aqara_fp2">
+      </div>
+      <div class="range-wrapper" style="margin-top: 0.85rem;">
+        <label for="presenceTimeout">Display-Timeout nach Präsenz (Sekunden)</label>
+        <div class="range-control">
+          <input id="presenceTimeout" type="range" min="10" max="600" step="10" value="300">
+          <input id="presenceTimeoutInput" type="number" min="10" max="3600" step="10" value="300">
+        </div>
+      </div>
+      <button id="saveMqtt">MQTT Einstellungen speichern</button>
+      <p style="font-size: 0.85rem; color: var(--muted); margin: 0.5rem 0 0 0;">
+        <strong>Hinweis:</strong> Nach dem Speichern wird die MQTT-Verbindung neu aufgebaut. Das Display schaltet sich automatisch aus, wenn keine Präsenz erkannt wird.<br>
+        <strong>Aqara FP2:</strong> Topic ist <code>zigbee2mqtt/[dein_sensor_name]</code> (ohne /presence oder /occupancy). Der Code erkennt JSON automatisch.
+      </p>
+    </section>
 
     <footer>
       <span>Status-Werte werden alle 2&nbsp;Sekunden aktualisiert &mdash; Einstellungen bleiben editierbar</span>
     </footer>
   </main>
 
-  <!-- Toast Container -->
-  <div class="toast-container" id="toastContainer" aria-live="polite" aria-atomic="true"></div>
-
-  <!-- Hidden status message for compatibility -->
-  <div id="statusMessage" style="display: none;"></div>
-
   <script>
-    // Toast Notification System
-    function showToast(message, type = 'info') {
-      const container = document.getElementById('toastContainer');
-      const toast = document.createElement('div');
-      toast.className = `toast ${type}`;
-      toast.textContent = message;
-      toast.setAttribute('role', 'alert');
-      container.appendChild(toast);
+    const effectSelect = document.getElementById('effectSelect');
+    const timeEl = document.getElementById('time');
+    const currentEffectEl = document.getElementById('currentEffect');
+    const currentBrightnessEl = document.getElementById('currentBrightness');
+    const currentTimezoneEl = document.getElementById('currentTimezone');
+    const sensorValueEl = document.getElementById('sensorValue');
+    const autoStatusEl = document.getElementById('autoStatus');
+    const tzSelect = document.getElementById('tz');
+    const setTzButton = document.getElementById('setTz');
+    const brightnessSlider = document.getElementById('brightness');
+    const brightnessInput = document.getElementById('brightnessInput');
+    const saveBrightnessButton = document.getElementById('saveBrightness');
+    const statusMessage = document.getElementById('statusMessage');
 
-      setTimeout(() => {
-        toast.style.animation = 'toastSlideIn 0.3s ease reverse';
-        setTimeout(() => toast.remove(), 300);
-      }, 3000);
-    }
+    // Auto-Brightness Elemente
+    const autoEnabled = document.getElementById('autoEnabled');
+    const minBrightnessSlider = document.getElementById('minBrightness');
+    const maxBrightnessSlider = document.getElementById('maxBrightness');
+    const sensorMinSlider = document.getElementById('sensorMin');
+    const sensorMaxSlider = document.getElementById('sensorMax');
+    const minBrightnessInput = document.getElementById('minBrightnessInput');
+    const maxBrightnessInput = document.getElementById('maxBrightnessInput');
+    const sensorMinInput = document.getElementById('sensorMinInput');
+    const sensorMaxInput = document.getElementById('sensorMaxInput');
+    const saveAutoButton = document.getElementById('saveAuto');
 
-    // Accordion functionality
-    document.querySelectorAll('.accordion-header').forEach(header => {
-      header.addEventListener('click', () => {
-        const accordion = header.parentElement;
-        const isOpen = accordion.classList.contains('open');
-        accordion.classList.toggle('open');
-        header.setAttribute('aria-expanded', !isOpen);
-      });
+    // MQTT Elemente
+    const mqttEnabledCheckbox = document.getElementById('mqttEnabled');
+    const mqttServerInput = document.getElementById('mqttServer');
+    const mqttPortInput = document.getElementById('mqttPort');
+    const mqttUserInput = document.getElementById('mqttUser');
+    const mqttPasswordInput = document.getElementById('mqttPassword');
+    const mqttTopicInput = document.getElementById('mqttTopic');
+    const presenceTimeoutSlider = document.getElementById('presenceTimeout');
+    const presenceTimeoutInput = document.getElementById('presenceTimeoutInput');
+    const saveMqttButton = document.getElementById('saveMqtt');
+    const mqttStatusEl = document.getElementById('mqttStatus');
+    const presenceStatusEl = document.getElementById('presenceStatus');
+    const displayStatusEl = document.getElementById('displayStatus');
+    const otaStatusEl = document.getElementById('otaStatus');
+    const ipAddressEl = document.getElementById('ipAddress');
 
-      header.addEventListener('keydown', (e) => {
-        if (e.key === 'Enter' || e.key === ' ') {
-          e.preventDefault();
-          header.click();
-        }
-      });
-    });
+    let brightnessDebounce;
 
-    // Effect Cards
-    const effectCards = document.querySelectorAll('.effect-card');
+    // Track which fields are currently being edited to prevent refresh overwrites
+    const editingFields = new Set();
+
     const effectLabels = {
       snake: 'Snake',
       clock: 'Clock',
@@ -1136,81 +472,22 @@ const char WEB_INTERFACE_HTML[] PROGMEM = R"rawl(
       sandclock: 'Sand Clock'
     };
 
-    function setActiveEffect(effect) {
-      effectCards.forEach(card => {
-        card.classList.remove('active');
-        if (card.dataset.effect === effect) {
-          card.classList.add('active');
-        }
-      });
+    function showStatus(message, type = 'info') {
+      statusMessage.textContent = message;
+      statusMessage.style.color = type === 'error' ? '#ff7b7b' : 'var(--muted)';
     }
-
-    effectCards.forEach(card => {
-      card.addEventListener('click', () => {
-        const effect = card.dataset.effect;
-        applyEffect(effect);
-      });
-
-      card.addEventListener('keydown', (e) => {
-        if (e.key === 'Enter' || e.key === ' ') {
-          e.preventDefault();
-          card.click();
-        }
-      });
-    });
-
-    // DOM Elements
-    const timeEl = document.getElementById('time');
-    const currentEffectEl = document.getElementById('currentEffect');
-    const currentBrightnessEl = document.getElementById('currentBrightness');
-    const currentTimezoneEl = document.getElementById('currentTimezone');
-    const sensorValueEl = document.getElementById('sensorValue');
-    const autoStatusEl = document.getElementById('autoStatus');
-    const tzSelect = document.getElementById('tz');
-    const setTzButton = document.getElementById('setTz');
-    const brightnessSlider = document.getElementById('brightness');
-    const brightnessInput = document.getElementById('brightnessInput');
-    const brightnessPreview = document.getElementById('brightnessPreview');
-    const saveBrightnessButton = document.getElementById('saveBrightness');
-
-    // Auto-Brightness Elements
-    const autoEnabled = document.getElementById('autoEnabled');
-    const minBrightnessSlider = document.getElementById('minBrightness');
-    const maxBrightnessSlider = document.getElementById('maxBrightness');
-    const sensorMinSlider = document.getElementById('sensorMin');
-    const sensorMaxSlider = document.getElementById('sensorMax');
-    const minBrightnessInput = document.getElementById('minBrightnessInput');
-    const maxBrightnessInput = document.getElementById('maxBrightnessInput');
-    const sensorMinInput = document.getElementById('sensorMinInput');
-    const sensorMaxInput = document.getElementById('sensorMaxInput');
-    const saveAutoButton = document.getElementById('saveAuto');
-
-    // MQTT Elements
-    const mqttEnabledCheckbox = document.getElementById('mqttEnabled');
-    const mqttServerInput = document.getElementById('mqttServer');
-    const mqttPortInput = document.getElementById('mqttPort');
-    const mqttUserInput = document.getElementById('mqttUser');
-    const mqttPasswordInput = document.getElementById('mqttPassword');
-    const mqttTopicInput = document.getElementById('mqttTopic');
-    const presenceTimeoutSlider = document.getElementById('presenceTimeout');
-    const presenceTimeoutInput = document.getElementById('presenceTimeoutInput');
-    const saveMqttButton = document.getElementById('saveMqtt');
-    const mqttStatusEl = document.getElementById('mqttStatus');
-    const presenceStatusEl = document.getElementById('presenceStatus');
-    const displayStatusEl = document.getElementById('displayStatus');
-
-    let brightnessDebounce;
-    const editingFields = new Set();
 
     function prettifyEffect(effect) {
       return effectLabels[effect] || (effect.charAt(0).toUpperCase() + effect.slice(1));
     }
 
+    // Helper: sync slider and input
     function syncSliderInput(slider, input, value) {
       slider.value = value;
       input.value = value;
     }
 
+    // Helper: update value only if not being edited
     function safeUpdate(fieldName, slider, input, value) {
       if (!editingFields.has(fieldName)) {
         syncSliderInput(slider, input, value);
@@ -1220,33 +497,6 @@ const char WEB_INTERFACE_HTML[] PROGMEM = R"rawl(
     function updateBrightnessUI(value) {
       currentBrightnessEl.textContent = value;
       safeUpdate('brightness', brightnessSlider, brightnessInput, value);
-      const percent = (value / 1023) * 100;
-      brightnessPreview.style.setProperty('--brightness-percent', percent + '%');
-    }
-
-    function setButtonLoading(button, loading) {
-      if (loading) {
-        button.classList.add('loading');
-        button.disabled = true;
-      } else {
-        button.classList.remove('loading');
-        button.disabled = false;
-      }
-    }
-
-    function updateStatusBadge(element, status, value) {
-      element.className = 'status-badge';
-      if (status === 'success' || value === true || value === 'An' || value === 'Verbunden' || value === 'Erkannt') {
-        element.className += ' badge-success';
-      } else if (status === 'warning' || value === 'Getrennt') {
-        element.className += ' badge-warning';
-      } else if (status === 'error' || value === false || value === 'Aus' || value === 'Nicht erkannt') {
-        element.className += ' badge-error';
-      } else if (status === 'info') {
-        element.className += ' badge-info';
-      } else {
-        element.className += ' badge-neutral';
-      }
     }
 
     async function fetchJson(url) {
@@ -1257,15 +507,21 @@ const char WEB_INTERFACE_HTML[] PROGMEM = R"rawl(
       return response.json();
     }
 
+    // Lädt Settings einmalig beim Seitenaufruf
     async function loadSettings() {
       try {
         const data = await fetchJson('/api/status');
 
+        // Timezone Select
         tzSelect.value = data.tz || 'CET-1CEST,M3.5.0,M10.5.0/3';
         currentTimezoneEl.textContent = data.tz || '-';
 
-        setActiveEffect(data.effect);
+        // Effect Select
+        if ([...effectSelect.options].some(option => option.value === data.effect)) {
+          effectSelect.value = data.effect;
+        }
 
+        // Auto-Brightness Settings (einmalig laden)
         if (data.autoBrightness !== undefined) {
           autoEnabled.checked = data.autoBrightness;
         }
@@ -1282,6 +538,7 @@ const char WEB_INTERFACE_HTML[] PROGMEM = R"rawl(
           syncSliderInput(sensorMaxSlider, sensorMaxInput, data.sensorMax);
         }
 
+        // MQTT Settings (einmalig laden)
         if (data.mqttEnabled !== undefined) {
           mqttEnabledCheckbox.checked = data.mqttEnabled;
         }
@@ -1299,103 +556,96 @@ const char WEB_INTERFACE_HTML[] PROGMEM = R"rawl(
           syncSliderInput(presenceTimeoutSlider, presenceTimeoutInput, timeoutSeconds);
         }
       } catch (error) {
-        showToast('Settings konnte nicht geladen werden. ' + error.message, 'error');
+        showStatus('Settings konnte nicht geladen werden. ' + error.message, 'error');
       }
     }
 
+    // Aktualisiert nur Status-Werte (wird alle 2 Sekunden aufgerufen)
     async function refreshStatus() {
       try {
         const data = await fetchJson('/api/status');
 
+        // Nur Status-Werte aktualisieren (keine Input-Felder)
         timeEl.textContent = data.time;
         currentEffectEl.textContent = prettifyEffect(data.effect);
-        setActiveEffect(data.effect);
 
         updateBrightnessUI(data.brightness);
 
+        // Auto-Brightness Status (nur Sensor-Wert und Status-Anzeige)
         if (data.sensorValue !== undefined) {
           sensorValueEl.textContent = data.sensorValue;
         }
         if (data.autoBrightness !== undefined) {
-          const status = data.autoBrightness ? 'An' : 'Aus';
-          autoStatusEl.textContent = status;
-          updateStatusBadge(autoStatusEl, data.autoBrightness ? 'success' : 'neutral', status);
+          autoStatusEl.textContent = data.autoBrightness ? 'An' : 'Aus';
         }
 
+        // MQTT Status (nur Verbindungs- und Präsenz-Status)
         if (data.mqttConnected !== undefined) {
           if (data.mqttConnected) {
             mqttStatusEl.textContent = 'Verbunden';
-            updateStatusBadge(mqttStatusEl, 'success', 'Verbunden');
+            mqttStatusEl.style.color = '#5bc0eb';
           } else if (data.mqttEnabled) {
             mqttStatusEl.textContent = 'Getrennt';
-            updateStatusBadge(mqttStatusEl, 'warning', 'Getrennt');
+            mqttStatusEl.style.color = '#ff7b7b';
           } else {
             mqttStatusEl.textContent = 'Aus';
-            updateStatusBadge(mqttStatusEl, 'neutral', 'Aus');
+            mqttStatusEl.style.color = '';
           }
         }
 
         if (data.presenceDetected !== undefined) {
-          const status = data.presenceDetected ? 'Erkannt' : 'Nicht erkannt';
-          presenceStatusEl.textContent = status;
-          updateStatusBadge(presenceStatusEl, data.presenceDetected ? 'success' : 'neutral', status);
+          presenceStatusEl.textContent = data.presenceDetected ? 'Erkannt' : 'Nicht erkannt';
+          presenceStatusEl.style.color = data.presenceDetected ? '#5bc0eb' : '';
         }
 
         if (data.displayEnabled !== undefined) {
-          const status = data.displayEnabled ? 'An' : 'Aus';
-          displayStatusEl.textContent = status;
-          updateStatusBadge(displayStatusEl, data.displayEnabled ? 'success' : 'error', status);
+          displayStatusEl.textContent = data.displayEnabled ? 'An' : 'Aus';
+          displayStatusEl.style.color = data.displayEnabled ? '' : '#ff7b7b';
         }
+
+        if (data.otaEnabled !== undefined) {
+          otaStatusEl.textContent = data.otaEnabled ? 'Aktiv' : 'Inaktiv';
+          otaStatusEl.style.color = data.otaEnabled ? '' : '#ff7b7b';
+        }
+
+        if (data.ipAddress !== undefined) {
+          ipAddressEl.textContent = data.ipAddress;
+          ipAddressEl.title = 'IP-Adresse für OTA-Updates: ' + data.ipAddress;
+        }
+
+        showStatus('');
       } catch (error) {
-        showToast('Status konnte nicht geladen werden. ' + error.message, 'error');
+        showStatus('Status konnte nicht geladen werden. ' + error.message, 'error');
       }
     }
 
     async function applyEffect(effect) {
       try {
-        setButtonLoading(saveBrightnessButton, true);
         await fetch('/effect/' + encodeURIComponent(effect));
         currentEffectEl.textContent = prettifyEffect(effect);
-        setActiveEffect(effect);
-        showToast('Effekt aktualisiert: ' + prettifyEffect(effect), 'success');
+        showStatus('Effekt aktualisiert.');
       } catch (error) {
-        showToast('Effektwechsel fehlgeschlagen.', 'error');
-      } finally {
-        setButtonLoading(saveBrightnessButton, false);
+        showStatus('Effektwechsel fehlgeschlagen.', 'error');
       }
     }
 
     async function updateTimezone() {
       const tz = tzSelect.value.trim();
       if (!tz) {
-        showToast('Bitte eine gültige Zeitzone auswählen.', 'error');
+        showStatus('Bitte eine gültige Zeitzone auswählen.', 'error');
         return;
       }
       try {
-        setButtonLoading(setTzButton, true);
         await fetch('/api/setTimezone?tz=' + encodeURIComponent(tz));
         currentTimezoneEl.textContent = tz;
-        showToast('Zeitzone gespeichert.', 'success');
+        showStatus('Zeitzone gespeichert.');
       } catch (error) {
-        showToast('Zeitzone konnte nicht gespeichert werden.', 'error');
-      } finally {
-        setButtonLoading(setTzButton, false);
+        showStatus('Zeitzone konnte nicht gespeichert werden.', 'error');
       }
     }
 
     async function saveAutoBrightness() {
-      // Validate inputs
-      if (parseInt(minBrightnessInput.value) > parseInt(maxBrightnessInput.value)) {
-        showToast('Min. Helligkeit darf nicht größer als Max. Helligkeit sein.', 'error');
-        return;
-      }
-      if (parseInt(sensorMinInput.value) > parseInt(sensorMaxInput.value)) {
-        showToast('Sensor Min. darf nicht größer als Sensor Max. sein.', 'error');
-        return;
-      }
-      
       try {
-        setButtonLoading(saveAutoButton, true);
         const params = new URLSearchParams({
           enabled: autoEnabled.checked ? 'true' : 'false',
           min: minBrightnessInput.value,
@@ -1404,31 +654,14 @@ const char WEB_INTERFACE_HTML[] PROGMEM = R"rawl(
           sensorMax: sensorMaxInput.value
         });
         await fetch('/api/setAutoBrightness?' + params.toString());
-        showToast('Auto-Brightness Einstellungen gespeichert.', 'success');
+        showStatus('Auto-Brightness Einstellungen gespeichert.');
       } catch (error) {
-        showToast('Auto-Brightness konnte nicht gespeichert werden.', 'error');
-      } finally {
-        setButtonLoading(saveAutoButton, false);
+        showStatus('Auto-Brightness konnte nicht gespeichert werden.', 'error');
       }
     }
 
     async function saveMqtt() {
-      // Validate inputs
-      if (mqttServerInput.value && !mqttServerInput.validity.valid) {
-        showToast('Bitte eine gültige IP-Adresse eingeben.', 'error');
-        return;
-      }
-      if (!mqttPortInput.validity.valid) {
-        showToast('Bitte einen gültigen Port eingeben.', 'error');
-        return;
-      }
-      if (!presenceTimeoutInput.validity.valid) {
-        showToast('Bitte einen gültigen Timeout-Wert eingeben.', 'error');
-        return;
-      }
-      
       try {
-        setButtonLoading(saveMqttButton, true);
         const timeoutMs = parseInt(presenceTimeoutInput.value) * 1000;
         const params = new URLSearchParams({
           enabled: mqttEnabledCheckbox.checked ? 'true' : 'false',
@@ -1440,34 +673,34 @@ const char WEB_INTERFACE_HTML[] PROGMEM = R"rawl(
           timeout: timeoutMs.toString()
         });
         await fetch('/api/setMqtt?' + params.toString());
-        showToast('MQTT Einstellungen gespeichert. Verbindung wird neu aufgebaut...', 'info');
+        showStatus('MQTT Einstellungen gespeichert. Verbindung wird neu aufgebaut...');
       } catch (error) {
-        showToast('MQTT konnte nicht gespeichert werden.', 'error');
-      } finally {
-        setButtonLoading(saveMqttButton, false);
+        showStatus('MQTT konnte nicht gespeichert werden.', 'error');
       }
     }
 
     async function saveBrightness(value) {
-      if (!brightnessInput.validity.valid) {
-        showToast('Bitte einen gültigen Helligkeitswert eingeben (0-1023).', 'error');
-        return;
-      }
       try {
         await fetch('/api/setBrightness?b=' + encodeURIComponent(value));
-        showToast('Helligkeit gespeichert.', 'success');
+        showStatus('Helligkeit gespeichert.');
       } catch (error) {
-        showToast('Helligkeit konnte nicht gespeichert werden.', 'error');
+        showStatus('Helligkeit konnte nicht gespeichert werden.', 'error');
       }
     }
 
-    // Event Listeners
-    setTzButton.addEventListener('click', updateTimezone);
+    effectSelect.addEventListener('change', event => {
+      applyEffect(event.target.value);
+    });
 
+    setTzButton.addEventListener('click', () => {
+      updateTimezone();
+    });
+
+    // Brightness slider/input sync and save
     brightnessSlider.addEventListener('input', event => {
       const value = event.target.value;
       brightnessInput.value = value;
-      updateBrightnessUI(value);
+      currentBrightnessEl.textContent = value;
       clearTimeout(brightnessDebounce);
       brightnessDebounce = setTimeout(() => saveBrightness(value), 400);
     });
@@ -1475,7 +708,7 @@ const char WEB_INTERFACE_HTML[] PROGMEM = R"rawl(
     brightnessInput.addEventListener('input', event => {
       const value = Math.max(0, Math.min(1023, parseInt(event.target.value) || 0));
       brightnessSlider.value = value;
-      updateBrightnessUI(value);
+      currentBrightnessEl.textContent = value;
       clearTimeout(brightnessDebounce);
       brightnessDebounce = setTimeout(() => saveBrightness(value), 400);
     });
@@ -1490,6 +723,7 @@ const char WEB_INTERFACE_HTML[] PROGMEM = R"rawl(
     });
 
     // Auto-Brightness Event Listeners
+    // Min Brightness
     minBrightnessSlider.addEventListener('input', event => {
       minBrightnessInput.value = event.target.value;
     });
@@ -1503,6 +737,7 @@ const char WEB_INTERFACE_HTML[] PROGMEM = R"rawl(
     minBrightnessInput.addEventListener('focus', () => editingFields.add('minBrightness'));
     minBrightnessInput.addEventListener('blur', () => editingFields.delete('minBrightness'));
 
+    // Max Brightness
     maxBrightnessSlider.addEventListener('input', event => {
       maxBrightnessInput.value = event.target.value;
     });
@@ -1516,6 +751,7 @@ const char WEB_INTERFACE_HTML[] PROGMEM = R"rawl(
     maxBrightnessInput.addEventListener('focus', () => editingFields.add('maxBrightness'));
     maxBrightnessInput.addEventListener('blur', () => editingFields.delete('maxBrightness'));
 
+    // Sensor Min
     sensorMinSlider.addEventListener('input', event => {
       sensorMinInput.value = event.target.value;
     });
@@ -1529,6 +765,7 @@ const char WEB_INTERFACE_HTML[] PROGMEM = R"rawl(
     sensorMinInput.addEventListener('focus', () => editingFields.add('sensorMin'));
     sensorMinInput.addEventListener('blur', () => editingFields.delete('sensorMin'));
 
+    // Sensor Max
     sensorMaxSlider.addEventListener('input', event => {
       sensorMaxInput.value = event.target.value;
     });
@@ -1542,6 +779,7 @@ const char WEB_INTERFACE_HTML[] PROGMEM = R"rawl(
     sensorMaxInput.addEventListener('focus', () => editingFields.add('sensorMax'));
     sensorMaxInput.addEventListener('blur', () => editingFields.delete('sensorMax'));
 
+    // Auto Enabled Checkbox
     autoEnabled.addEventListener('focus', () => editingFields.add('autoEnabled'));
     autoEnabled.addEventListener('blur', () => editingFields.delete('autoEnabled'));
     autoEnabled.addEventListener('change', () => {
@@ -1562,6 +800,7 @@ const char WEB_INTERFACE_HTML[] PROGMEM = R"rawl(
     mqttTopicInput.addEventListener('focus', () => editingFields.add('mqttTopic'));
     mqttTopicInput.addEventListener('blur', () => editingFields.delete('mqttTopic'));
 
+    // Presence Timeout Slider/Input
     presenceTimeoutSlider.addEventListener('input', event => {
       presenceTimeoutInput.value = event.target.value;
     });
@@ -1579,7 +818,7 @@ const char WEB_INTERFACE_HTML[] PROGMEM = R"rawl(
       saveMqtt();
     });
 
-    // Initialize
+    // Initiales Laden: Settings einmalig laden, dann nur noch Status aktualisieren
     loadSettings();
     refreshStatus();
     setInterval(refreshStatus, 2000);
