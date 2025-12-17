@@ -35,13 +35,12 @@ const char WEB_INTERFACE_HTML[] PROGMEM = R"rawl(
       --radius: 12px;
       --radius-sm: 8px;
       --radius-lg: 16px;
-      /* 8px Grid System */
-      --spacing-1: 0.5rem;   /* 8px */
-      --spacing-2: 1rem;     /* 16px */
-      --spacing-3: 1.5rem;   /* 24px */
-      --spacing-4: 2rem;     /* 32px */
-      --spacing-5: 2.5rem;   /* 40px */
-      --spacing-6: 3rem;     /* 48px */
+      --spacing-1: 0.5rem;
+      --spacing-2: 1rem;
+      --spacing-3: 1.5rem;
+      --spacing-4: 2rem;
+      --spacing-5: 2.5rem;
+      --spacing-6: 3rem;
       font-family: "Inter", "Segoe UI", system-ui, -apple-system, sans-serif;
     }
 
@@ -75,7 +74,6 @@ const char WEB_INTERFACE_HTML[] PROGMEM = R"rawl(
       padding: clamp(var(--spacing-3), 4vw, var(--spacing-5));
     }
 
-    /* Typography Hierarchy */
     h1 {
       margin: 0;
       font-size: clamp(1.75rem, 4vw, 2.25rem);
@@ -123,7 +121,6 @@ const char WEB_INTERFACE_HTML[] PROGMEM = R"rawl(
       margin-bottom: var(--spacing-4);
     }
 
-    /* Status Dashboard - Enhanced */
     .status-dashboard {
       display: grid;
       grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
@@ -254,7 +251,6 @@ const char WEB_INTERFACE_HTML[] PROGMEM = R"rawl(
       display: none;
     }
 
-    /* Card Styles */
     .card {
       display: flex;
       flex-direction: column;
@@ -286,7 +282,6 @@ const char WEB_INTERFACE_HTML[] PROGMEM = R"rawl(
       color: var(--text);
     }
 
-    /* Accordion - Enhanced */
     .accordion {
       border: 1px solid var(--border);
       border-radius: var(--radius);
@@ -351,7 +346,6 @@ const char WEB_INTERFACE_HTML[] PROGMEM = R"rawl(
       padding: var(--spacing-3);
     }
 
-    /* Effect Cards - Enhanced */
     .effect-grid {
       display: grid;
       grid-template-columns: repeat(auto-fill, minmax(120px, 1fr));
@@ -421,7 +415,6 @@ const char WEB_INTERFACE_HTML[] PROGMEM = R"rawl(
       z-index: 1;
     }
 
-    /* Form Elements - Enhanced */
     label {
       font-weight: 600;
       display: block;
@@ -546,7 +539,6 @@ const char WEB_INTERFACE_HTML[] PROGMEM = R"rawl(
       to { transform: translate(-50%, -50%) rotate(360deg); }
     }
 
-    /* Range Controls - Enhanced */
     .range-wrapper {
       display: flex;
       flex-direction: column;
@@ -627,7 +619,6 @@ const char WEB_INTERFACE_HTML[] PROGMEM = R"rawl(
       box-shadow: 0 3px 12px rgba(91, 192, 235, 0.5);
     }
 
-    /* Brightness Preview - Enhanced */
     .brightness-preview {
       width: 100%;
       height: 10px;
@@ -655,7 +646,6 @@ const char WEB_INTERFACE_HTML[] PROGMEM = R"rawl(
       box-shadow: 0 0 8px rgba(91, 192, 235, 0.4);
     }
 
-    /* Checkbox - Enhanced */
     .checkbox-wrapper {
       display: flex;
       align-items: center;
@@ -683,13 +673,11 @@ const char WEB_INTERFACE_HTML[] PROGMEM = R"rawl(
       border-radius: 4px;
     }
 
-    /* Grid */
     .grid {
       display: grid;
       gap: var(--spacing-2);
     }
 
-    /* Toast Notifications - Enhanced */
     .toast-container {
       position: fixed;
       top: var(--spacing-3);
@@ -760,7 +748,6 @@ const char WEB_INTERFACE_HTML[] PROGMEM = R"rawl(
       border-top: 1px solid var(--border);
     }
 
-    /* Responsive - Enhanced */
     @media (min-width: 520px) {
       .grid {
         grid-template-columns: repeat(2, minmax(0, 1fr));
@@ -793,12 +780,6 @@ const char WEB_INTERFACE_HTML[] PROGMEM = R"rawl(
       }
     }
 
-    /* Hide old status message */
-    #statusMessage {
-      display: none;
-    }
-
-    /* Smooth transitions for status updates */
     .status-value,
     .status-badge {
       animation: fadeIn 0.3s ease;
@@ -823,7 +804,6 @@ const char WEB_INTERFACE_HTML[] PROGMEM = R"rawl(
       <p class="subtitle">LED-Matrix Steuerung &mdash; modernes Web-Dashboard</p>
     </header>
 
-    <!-- Status Dashboard -->
     <section class="status-dashboard" role="region" aria-label="System Status">
       <div class="status-item">
         <div class="status-label">
@@ -888,9 +868,22 @@ const char WEB_INTERFACE_HTML[] PROGMEM = R"rawl(
         </div>
         <div id="displayStatus" class="status-badge badge-success">An</div>
       </div>
+      <div class="status-item">
+        <div class="status-label">
+          <span>🔄</span>
+          <span>OTA</span>
+        </div>
+        <div id="otaStatus" class="status-badge badge-neutral">-</div>
+      </div>
+      <div class="status-item">
+        <div class="status-label">
+          <span>🌐</span>
+          <span>IP-Adresse</span>
+        </div>
+        <div class="status-value" id="ipAddress" style="font-size: 0.875rem;">-</div>
+      </div>
     </section>
 
-    <!-- Effect Selection -->
     <section class="card" role="region" aria-label="Effekt Auswahl">
       <div class="card-header">
         <h2 class="card-title">Effekt auswählen</h2>
@@ -937,27 +930,37 @@ const char WEB_INTERFACE_HTML[] PROGMEM = R"rawl(
         </div>
       </div>
       <div style="margin-top: var(--spacing-2);">
-        <label for="tz">Zeitzone</label>
-        <select id="tz" aria-label="Zeitzone auswählen">
-          <option value="CET-1CEST,M3.5.0,M10.5.0/3">Europa/Berlin (CET)</option>
-          <option value="GMT0BST,M3.5.0/1,M10.5.0">Europa/London (GMT/BST)</option>
-          <option value="WET0WEST,M3.5.0/1,M10.5.0">Europa/Lissabon (WET/WEST)</option>
-          <option value="EET-2EEST,M3.5.0/3,M10.5.0/4">Europa/Helsinki (EET)</option>
-          <option value="EST5EDT,M3.2.0,M11.1.0">Amerika/New York (EST)</option>
-          <option value="CST6CDT,M3.2.0,M11.1.0">Amerika/Chicago (CST)</option>
-          <option value="MST7MDT,M3.2.0,M11.1.0">Amerika/Denver (MST)</option>
-          <option value="PST8PDT,M3.2.0,M11.1.0">Amerika/Los Angeles (PST)</option>
-          <option value="AEST-10AEDT,M10.1.0,M4.1.0/3">Australien/Sydney (AEST)</option>
-          <option value="JST-9">Asien/Tokio (JST)</option>
-          <option value="CST-8">Asien/Shanghai (CST)</option>
-          <option value="IST-5:30">Asien/Indien (IST)</option>
-          <option value="UTC0">UTC</option>
-        </select>
-        <button id="setTz" aria-label="Zeitzone aktualisieren">Zeitzone aktualisieren</button>
+        <div class="grid" style="gap: var(--spacing-2); grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));">
+          <div>
+            <label for="tz">Zeitzone</label>
+            <select id="tz" aria-label="Zeitzone auswählen">
+              <option value="CET-1CEST-2,M3.5.0/2,M10.5.0/3">Europa/Berlin (CET)</option>
+              <option value="GMT0BST,M3.5.0/1,M10.5.0">Europa/London (GMT/BST)</option>
+              <option value="WET0WEST,M3.5.0/1,M10.5.0">Europa/Lissabon (WET/WEST)</option>
+              <option value="EET-2EEST,M3.5.0/3,M10.5.0/4">Europa/Helsinki (EET)</option>
+              <option value="EST5EDT,M3.2.0,M11.1.0">Amerika/New York (EST)</option>
+              <option value="CST6CDT,M3.2.0,M11.1.0">Amerika/Chicago (CST)</option>
+              <option value="MST7MDT,M3.2.0,M11.1.0">Amerika/Denver (MST)</option>
+              <option value="PST8PDT,M3.2.0,M11.1.0">Amerika/Los Angeles (PST)</option>
+              <option value="AEST-10AEDT,M10.1.0,M4.1.0/3">Australien/Sydney (AEST)</option>
+              <option value="JST-9">Asien/Tokio (JST)</option>
+              <option value="CST-8">Asien/Shanghai (CST)</option>
+              <option value="IST-5:30">Asien/Indien (IST)</option>
+              <option value="UTC0">UTC</option>
+            </select>
+          </div>
+          <div>
+            <label for="hourFormat">Zeitformat</label>
+            <select id="hourFormat" aria-label="Zeitformat auswählen">
+              <option value="24">24-Stunden-Format</option>
+              <option value="12">12-Stunden-Format (AM/PM)</option>
+            </select>
+          </div>
+        </div>
+        <button id="setTz" aria-label="Zeitzone und Zeitformat aktualisieren">Zeitzone & Zeitformat speichern</button>
       </div>
     </section>
 
-    <!-- Manual Brightness -->
     <section class="card" role="region" aria-label="Manuelle Helligkeit">
       <div class="card-header">
         <h2 class="card-title">Helligkeit (Manuell)</h2>
@@ -974,7 +977,6 @@ const char WEB_INTERFACE_HTML[] PROGMEM = R"rawl(
       <button id="saveBrightness" aria-label="Helligkeit speichern">Helligkeit speichern</button>
     </section>
 
-    <!-- Auto Brightness Accordion -->
     <div class="accordion" role="region" aria-label="Automatische Helligkeit">
       <div class="accordion-header" role="button" tabindex="0" aria-expanded="false" aria-controls="autoBrightnessContent">
         <h3>Automatische Helligkeit</h3>
@@ -1023,7 +1025,6 @@ const char WEB_INTERFACE_HTML[] PROGMEM = R"rawl(
       </div>
     </div>
 
-    <!-- MQTT Accordion -->
     <div class="accordion" role="region" aria-label="MQTT Präsenzmelder">
       <div class="accordion-header" role="button" tabindex="0" aria-expanded="false" aria-controls="mqttContent">
         <h3>MQTT Präsenzmelder (Aqara)</h3>
@@ -1074,19 +1075,36 @@ const char WEB_INTERFACE_HTML[] PROGMEM = R"rawl(
       </div>
     </div>
 
+    <div class="accordion" role="region" aria-label="Backup und Restore">
+      <div class="accordion-header" role="button" tabindex="0" aria-expanded="false" aria-controls="backupContent">
+        <h3>Backup & Restore</h3>
+        <span class="accordion-icon" aria-hidden="true">▼</span>
+      </div>
+      <div class="accordion-content" id="backupContent">
+        <p class="caption" style="margin-bottom: var(--spacing-2);">
+          Erstellen Sie ein Backup Ihrer Konfiguration oder stellen Sie eine gespeicherte Konfiguration wieder her.
+        </p>
+        <div style="display: flex; gap: var(--spacing-2); flex-wrap: wrap;">
+          <button id="backupButton" aria-label="Konfiguration als Backup herunterladen">Backup herunterladen</button>
+          <label for="restoreFile" style="flex: 1; min-width: 200px;">
+            <input type="file" id="restoreFile" accept=".json" style="display: none;" aria-label="Backup-Datei auswählen">
+            <button onclick="document.getElementById('restoreFile').click()" style="width: 100%;" aria-label="Backup wiederherstellen">Backup wiederherstellen</button>
+          </label>
+        </div>
+        <p class="caption" style="margin-top: var(--spacing-2); color: var(--warning);">
+          <strong>Warnung:</strong> Das Wiederherstellen überschreibt alle aktuellen Einstellungen!
+        </p>
+      </div>
+    </div>
+
     <footer>
       <span>Status-Werte werden alle 2&nbsp;Sekunden aktualisiert &mdash; Einstellungen bleiben editierbar</span>
     </footer>
   </main>
 
-  <!-- Toast Container -->
   <div class="toast-container" id="toastContainer" aria-live="polite" aria-atomic="true"></div>
 
-  <!-- Hidden status message for compatibility -->
-  <div id="statusMessage" style="display: none;"></div>
-
   <script>
-    // Toast Notification System
     function showToast(message, type = 'info') {
       const container = document.getElementById('toastContainer');
       const toast = document.createElement('div');
@@ -1101,7 +1119,6 @@ const char WEB_INTERFACE_HTML[] PROGMEM = R"rawl(
       }, 3000);
     }
 
-    // Accordion functionality
     document.querySelectorAll('.accordion-header').forEach(header => {
       header.addEventListener('click', () => {
         const accordion = header.parentElement;
@@ -1118,7 +1135,6 @@ const char WEB_INTERFACE_HTML[] PROGMEM = R"rawl(
       });
     });
 
-    // Effect Cards
     const effectCards = document.querySelectorAll('.effect-card');
     const effectLabels = {
       snake: 'Snake',
@@ -1159,7 +1175,6 @@ const char WEB_INTERFACE_HTML[] PROGMEM = R"rawl(
       });
     });
 
-    // DOM Elements
     const timeEl = document.getElementById('time');
     const currentEffectEl = document.getElementById('currentEffect');
     const currentBrightnessEl = document.getElementById('currentBrightness');
@@ -1167,13 +1182,13 @@ const char WEB_INTERFACE_HTML[] PROGMEM = R"rawl(
     const sensorValueEl = document.getElementById('sensorValue');
     const autoStatusEl = document.getElementById('autoStatus');
     const tzSelect = document.getElementById('tz');
+    const hourFormatSelect = document.getElementById('hourFormat');
     const setTzButton = document.getElementById('setTz');
     const brightnessSlider = document.getElementById('brightness');
     const brightnessInput = document.getElementById('brightnessInput');
     const brightnessPreview = document.getElementById('brightnessPreview');
     const saveBrightnessButton = document.getElementById('saveBrightness');
 
-    // Auto-Brightness Elements
     const autoEnabled = document.getElementById('autoEnabled');
     const minBrightnessSlider = document.getElementById('minBrightness');
     const maxBrightnessSlider = document.getElementById('maxBrightness');
@@ -1185,7 +1200,6 @@ const char WEB_INTERFACE_HTML[] PROGMEM = R"rawl(
     const sensorMaxInput = document.getElementById('sensorMaxInput');
     const saveAutoButton = document.getElementById('saveAuto');
 
-    // MQTT Elements
     const mqttEnabledCheckbox = document.getElementById('mqttEnabled');
     const mqttServerInput = document.getElementById('mqttServer');
     const mqttPortInput = document.getElementById('mqttPort');
@@ -1198,6 +1212,8 @@ const char WEB_INTERFACE_HTML[] PROGMEM = R"rawl(
     const mqttStatusEl = document.getElementById('mqttStatus');
     const presenceStatusEl = document.getElementById('presenceStatus');
     const displayStatusEl = document.getElementById('displayStatus');
+    const otaStatusEl = document.getElementById('otaStatus');
+    const ipAddressEl = document.getElementById('ipAddress');
 
     let brightnessDebounce;
     const editingFields = new Set();
@@ -1261,8 +1277,10 @@ const char WEB_INTERFACE_HTML[] PROGMEM = R"rawl(
       try {
         const data = await fetchJson('/api/status');
 
-        tzSelect.value = data.tz || 'CET-1CEST,M3.5.0,M10.5.0/3';
+        tzSelect.value = data.tz || 'CET-1CEST-2,M3.5.0/2,M10.5.0/3';
         currentTimezoneEl.textContent = data.tz || '-';
+        const formatValue = data.hourFormat ? data.hourFormat : (data.use24HourFormat === false ? '12h' : '24h');
+        hourFormatSelect.value = (formatValue && formatValue.startsWith('12')) ? '12' : '24';
 
         setActiveEffect(data.effect);
 
@@ -1310,6 +1328,10 @@ const char WEB_INTERFACE_HTML[] PROGMEM = R"rawl(
         timeEl.textContent = data.time;
         currentEffectEl.textContent = prettifyEffect(data.effect);
         setActiveEffect(data.effect);
+        if (data.hourFormat || data.use24HourFormat !== undefined) {
+          const formatValue = data.hourFormat ? data.hourFormat : (data.use24HourFormat ? '24h' : '12h');
+          hourFormatSelect.value = formatValue.startsWith('12') ? '12' : '24';
+        }
 
         updateBrightnessUI(data.brightness);
 
@@ -1346,6 +1368,20 @@ const char WEB_INTERFACE_HTML[] PROGMEM = R"rawl(
           displayStatusEl.textContent = status;
           updateStatusBadge(displayStatusEl, data.displayEnabled ? 'success' : 'error', status);
         }
+
+        if (data.otaEnabled !== undefined) {
+          const status = data.otaEnabled ? 'Aktiv' : 'Inaktiv';
+          otaStatusEl.textContent = status;
+          updateStatusBadge(otaStatusEl, data.otaEnabled ? 'success' : 'neutral', status);
+          if (data.otaHostname) {
+            otaStatusEl.title = 'Hostname: ' + data.otaHostname + (data.ipAddress ? ' | IP: ' + data.ipAddress : '');
+          }
+        }
+
+        if (data.ipAddress !== undefined) {
+          ipAddressEl.textContent = data.ipAddress;
+          ipAddressEl.title = 'IP-Adresse für OTA-Updates: ' + data.ipAddress;
+        }
       } catch (error) {
         showToast('Status konnte nicht geladen werden. ' + error.message, 'error');
       }
@@ -1367,24 +1403,31 @@ const char WEB_INTERFACE_HTML[] PROGMEM = R"rawl(
 
     async function updateTimezone() {
       const tz = tzSelect.value.trim();
+      const format = hourFormatSelect.value === '12' ? '12' : '24';
       if (!tz) {
         showToast('Bitte eine gültige Zeitzone auswählen.', 'error');
         return;
       }
       try {
         setButtonLoading(setTzButton, true);
-        await fetch('/api/setTimezone?tz=' + encodeURIComponent(tz));
+        const responses = await Promise.all([
+          fetch('/api/setTimezone?tz=' + encodeURIComponent(tz)),
+          fetch('/api/setClockFormat?format=' + format)
+        ]);
+
+        if (responses.some(r => !r.ok)) {
+          throw new Error('Server hat die Einstellungen nicht akzeptiert.');
+        }
         currentTimezoneEl.textContent = tz;
-        showToast('Zeitzone gespeichert.', 'success');
+        showToast('Zeitzone und Zeitformat gespeichert.', 'success');
       } catch (error) {
-        showToast('Zeitzone konnte nicht gespeichert werden.', 'error');
+        showToast('Zeitzone/Zeitformat konnte nicht gespeichert werden.', 'error');
       } finally {
         setButtonLoading(setTzButton, false);
       }
     }
 
     async function saveAutoBrightness() {
-      // Validate inputs
       if (parseInt(minBrightnessInput.value) > parseInt(maxBrightnessInput.value)) {
         showToast('Min. Helligkeit darf nicht größer als Max. Helligkeit sein.', 'error');
         return;
@@ -1413,7 +1456,6 @@ const char WEB_INTERFACE_HTML[] PROGMEM = R"rawl(
     }
 
     async function saveMqtt() {
-      // Validate inputs
       if (mqttServerInput.value && !mqttServerInput.validity.valid) {
         showToast('Bitte eine gültige IP-Adresse eingeben.', 'error');
         return;
@@ -1461,7 +1503,6 @@ const char WEB_INTERFACE_HTML[] PROGMEM = R"rawl(
       }
     }
 
-    // Event Listeners
     setTzButton.addEventListener('click', updateTimezone);
 
     brightnessSlider.addEventListener('input', event => {
@@ -1489,7 +1530,6 @@ const char WEB_INTERFACE_HTML[] PROGMEM = R"rawl(
       saveBrightness(brightnessInput.value);
     });
 
-    // Auto-Brightness Event Listeners
     minBrightnessSlider.addEventListener('input', event => {
       minBrightnessInput.value = event.target.value;
     });
@@ -1552,7 +1592,6 @@ const char WEB_INTERFACE_HTML[] PROGMEM = R"rawl(
       saveAutoBrightness();
     });
 
-    // MQTT Event Listeners
     mqttEnabledCheckbox.addEventListener('focus', () => editingFields.add('mqttEnabled'));
     mqttEnabledCheckbox.addEventListener('blur', () => editingFields.delete('mqttEnabled'));
     mqttServerInput.addEventListener('focus', () => editingFields.add('mqttServer'));
@@ -1579,7 +1618,65 @@ const char WEB_INTERFACE_HTML[] PROGMEM = R"rawl(
       saveMqtt();
     });
 
-    // Initialize
+    const backupButton = document.getElementById('backupButton');
+    const restoreFile = document.getElementById('restoreFile');
+
+    backupButton.addEventListener('click', async () => {
+      try {
+        const response = await fetch('/api/backup');
+        if (!response.ok) {
+          throw new Error('Backup konnte nicht erstellt werden');
+        }
+        const blob = await response.blob();
+        const url = window.URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = 'ikea-clock-backup-' + new Date().toISOString().slice(0, 10) + '.json';
+        document.body.appendChild(a);
+        a.click();
+        window.URL.revokeObjectURL(url);
+        document.body.removeChild(a);
+        showToast('Backup erfolgreich heruntergeladen', 'success');
+      } catch (error) {
+        showToast('Backup fehlgeschlagen: ' + error.message, 'error');
+      }
+    });
+
+    restoreFile.addEventListener('change', async (event) => {
+      const file = event.target.files[0];
+      if (!file) return;
+
+      if (!confirm('Möchten Sie wirklich die Konfiguration wiederherstellen? Alle aktuellen Einstellungen werden überschrieben!')) {
+        event.target.value = '';
+        return;
+      }
+
+      try {
+        const text = await file.text();
+        const response = await fetch('/api/restore', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+          },
+          body: text
+        });
+
+        if (!response.ok) {
+          const error = await response.json();
+          throw new Error(error.error || 'Restore fehlgeschlagen');
+        }
+
+        const result = await response.json();
+        showToast('Konfiguration wiederhergestellt. Seite wird neu geladen...', 'success');
+        setTimeout(() => {
+          window.location.reload();
+        }, 2000);
+      } catch (error) {
+        showToast('Restore fehlgeschlagen: ' + error.message, 'error');
+        event.target.value = '';
+      }
+    });
+
     loadSettings();
     refreshStatus();
     setInterval(refreshStatus, 2000);

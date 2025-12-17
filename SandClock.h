@@ -6,6 +6,9 @@
 #include "ClockFont.h"
 #include <time.h>
 
+extern bool use24HourFormat;
+int formatHourForDisplay(int hour);
+
 namespace SandClockEffect {
   struct Grain {
     float x, y;
@@ -104,6 +107,7 @@ inline void SandClockEffect::startSandTransition() {
   
   int h = t->tm_hour;
   int m = t->tm_min;
+  int displayHour = formatHourForDisplay(h);
   
   const uint8_t digitWidth = ClockFont::WIDTH;
   const uint8_t digitHeight = ClockFont::HEIGHT;
@@ -119,17 +123,18 @@ inline void SandClockEffect::startSandTransition() {
     oldH--;
     if (oldH < 0) oldH = 23;
   }
+  int oldDisplayHour = formatHourForDisplay(oldH);
   
   // Sandkörner für geänderte Ziffern erstellen
   memset(grains, 0, sizeof(grains));
   
   // Stunden-Zehner
-  if (oldH / 10 != h / 10) {
-    createGrainsFromDigit(oldH / 10, h / 10, startX, 0);
+  if (oldDisplayHour / 10 != displayHour / 10) {
+    createGrainsFromDigit(oldDisplayHour / 10, displayHour / 10, startX, 0);
   }
   // Stunden-Einer
-  if (oldH % 10 != h % 10) {
-    createGrainsFromDigit(oldH % 10, h % 10, startX + digitWidth + spacing, 0);
+  if (oldDisplayHour % 10 != displayHour % 10) {
+    createGrainsFromDigit(oldDisplayHour % 10, displayHour % 10, startX + digitWidth + spacing, 0);
   }
   // Minuten-Zehner
   if (oldM / 10 != m / 10) {
@@ -190,7 +195,7 @@ inline void SandClockEffect::updatePhysics() {
 inline void SandClockEffect::drawStatic(uint8_t *frame) {
   time_t now = time(nullptr);
   struct tm *t = localtime(&now);
-  int h = t ? t->tm_hour : 0;
+  int h = t ? formatHourForDisplay(t->tm_hour) : 0;
   int m = t ? t->tm_min : 0;
   
   const uint8_t digitWidth = ClockFont::WIDTH;
