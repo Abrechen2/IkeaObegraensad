@@ -5,6 +5,8 @@
 #include <EEPROM.h>
 #include <time.h>
 #include <stdlib.h>
+#include <stdarg.h>
+#include <FS.h>
 extern "C" {
 #include <user_interface.h>
 }
@@ -60,13 +62,16 @@ const uint8_t LIGHT_SENSOR_PIN = A0; // Analoger Pin für Phototransistor
 // Auto-Brightness Konstanten (optimiert gegen Watchdog-Resets)
 const uint8_t LIGHT_SENSOR_SAMPLES = 5;     // Reduziert von 10 auf 5 für schnellere Messung
 const uint8_t LIGHT_SENSOR_SAMPLE_DELAY = 10; // Reduziert von 20ms auf 10ms
-const uint16_t BRIGHTNESS_CHANGE_THRESHOLD = 50; // Reduziert für sanftere Übergänge
+const uint16_t BRIGHTNESS_CHANGE_THRESHOLD = 30; // Erhöht für sanftere Übergänge (nur für große Änderungen)
 const unsigned long AUTO_BRIGHTNESS_UPDATE_INTERVAL = 3000; // 3s Update-Intervall
 
 // Exponential Moving Average für sanftere Helligkeitsanpassung (besser als Simple Moving Average)
-const float EMA_ALPHA = 0.15;  // Glättungsfaktor (0.0 = keine Änderung, 1.0 = sofortige Änderung)
-float emaSensorValue = 0.0;    // Aktueller EMA-Wert
+const float EMA_ALPHA_SENSOR = 0.08;  // Reduziert von 0.15 für langsamere Reaktion auf Sensor-Noise
+const float EMA_ALPHA_BRIGHTNESS = 0.12;  // Zusätzliche Glättung für Helligkeitsänderungen
+float emaSensorValue = 0.0;    // Aktueller EMA-Wert für Sensor
+float emaBrightnessValue = 0.0; // EMA-Wert für Helligkeit (zusätzliche Glättung)
 bool emaInitialized = false;   // Ist EMA initialisiert?
+bool emaBrightnessInitialized = false; // Ist Brightness-EMA initialisiert?
 
 // Non-blocking Sensor-Sampling
 uint8_t sensorSampleCount = 0;
@@ -222,9 +227,16 @@ bool processLightSensorSample() {
 
   unsigned long now = millis();
   if (now - lastSensorSample >= LIGHT_SENSOR_SAMPLE_DELAY) {
-    sensorSampleSum += analogRead(LIGHT_SENSOR_PIN);
+    uint16_t sensorReading = analogRead(LIGHT_SENSOR_PIN);
+    sensorSampleSum += sensorReading;
     sensorSampleCount++;
     lastSensorSample = now;
+
+    // #region agent log
+    if (sensorSampleCount == 1 || sensorSampleCount == LIGHT_SENSOR_SAMPLES) { // Erste und letzte Messung loggen
+      debugLogJson("processLightSensorSample", "Sensor sample", "D", "{\"sampleCount\":%d,\"reading\":%d,\"sum\":%lu}", sensorSampleCount, sensorReading, sensorSampleSum);
+    }
+    // #endregion
 
     if (sensorSampleCount >= LIGHT_SENSOR_SAMPLES) {
       sensorSamplingInProgress = false;
@@ -242,18 +254,52 @@ uint16_t getLightSensorResult() {
 
 // VERBESSERT: Exponential Moving Average (sanfter als Simple Moving Average)
 float applyEMA(float newValue) {
+  // #region agent log
+  float oldEma = emaSensorValue;
+  // #endregion
+  
   if (!emaInitialized) {
     emaSensorValue = newValue;
     emaInitialized = true;
+    // #region agent log
+    debugLogJson("applyEMA", "EMA initialized", "D", "{\"newValue\":%.2f}", newValue);
+    // #endregion
     return newValue;
   }
 
   // EMA Formel: EMA_new = alpha * value + (1 - alpha) * EMA_old
-  emaSensorValue = EMA_ALPHA * newValue + (1.0 - EMA_ALPHA) * emaSensorValue;
+  emaSensorValue = EMA_ALPHA_SENSOR * newValue + (1.0 - EMA_ALPHA_SENSOR) * emaSensorValue;
+  
+  // #region agent log
+  float emaChange = abs(emaSensorValue - oldEma);
+  if (emaChange > 10) { // Nur loggen bei größeren Änderungen
+    debugLogJson("applyEMA", "EMA update", "D", "{\"newValue\":%.2f,\"oldEma\":%.2f,\"newEma\":%.2f,\"change\":%.2f,\"alpha\":%.2f}", newValue, oldEma, emaSensorValue, emaChange, EMA_ALPHA_SENSOR);
+  }
+  // #endregion
+  
   return emaSensorValue;
 }
 
+// Zusätzliche EMA-Glättung für Helligkeitsänderungen (verhindert abrupte Sprünge)
+uint16_t applyBrightnessEMA(uint16_t newBrightness) {
+  if (!emaBrightnessInitialized) {
+    emaBrightnessValue = (float)newBrightness;
+    emaBrightnessInitialized = true;
+    return newBrightness;
+  }
+  
+  // EMA auf Helligkeit anwenden
+  emaBrightnessValue = EMA_ALPHA_BRIGHTNESS * (float)newBrightness + (1.0 - EMA_ALPHA_BRIGHTNESS) * emaBrightnessValue;
+  
+  // Auf Integer runden
+  return (uint16_t)(emaBrightnessValue + 0.5);
+}
+
 void updateAutoBrightness() {
+    // #region agent log
+    debugLogJson("updateAutoBrightness", "Function entry", "D", "{\"enabled\":%d,\"displayEnabled\":%d}", autoBrightnessEnabled ? 1 : 0, displayEnabled ? 1 : 0);
+    // #endregion
+  
   if (!autoBrightnessEnabled || !displayEnabled) {
     return;
   }
@@ -268,7 +314,14 @@ void updateAutoBrightness() {
   if (sensorSampleCount > 0) {
     // Alle Samples gesammelt, jetzt auswerten
     uint16_t rawSensorValue = getLightSensorResult();
+    // #region agent log
+    debugLogJson("updateAutoBrightness", "Raw sensor value", "D", "{\"rawSensorValue\":%d}", rawSensorValue);
+    // #endregion
+    
     float smoothedSensorValue = applyEMA(rawSensorValue);
+    // #region agent log
+    debugLogJson("updateAutoBrightness", "EMA smoothed value", "D", "{\"smoothedSensorValue\":%.2f,\"emaSensorValue\":%.2f}", smoothedSensorValue, emaSensorValue);
+    // #endregion
 
     // Map Sensorwert (sensorMin..sensorMax) auf Helligkeit (minBrightness..maxBrightness)
     uint16_t newBrightness;
@@ -285,14 +338,32 @@ void updateAutoBrightness() {
       newBrightness = map((uint16_t)smoothedSensorValue, sensorMin, sensorMax, minBrightness, maxBrightness);
     }
 
+    // #region agent log
+    int brightnessDiff = abs((int)newBrightness - (int)brightness);
+    debugLogJson("updateAutoBrightness", "Brightness calculation", "D", "{\"newBrightness\":%d,\"currentBrightness\":%d,\"diff\":%d,\"threshold\":%d,\"atBoundary\":%d}", newBrightness, brightness, brightnessDiff, BRIGHTNESS_CHANGE_THRESHOLD, atBoundary ? 1 : 0);
+    // #endregion
+
+    // Zusätzliche Glättung der Helligkeitsänderungen (verhindert abrupte Sprünge)
+    uint16_t smoothedBrightness = applyBrightnessEMA(newBrightness);
+    
     // An Grenzen immer aktualisieren, sonst nur bei signifikanter Änderung (Hysterese)
     // Hysterese verhindert Flackern im mittleren Bereich, sollte aber nicht Min/Max blockieren
-    if (atBoundary || abs((int)newBrightness - (int)brightness) > BRIGHTNESS_CHANGE_THRESHOLD) {
-      brightness = newBrightness;
+    // Verwende smoothedBrightness für Vergleich, aber aktualisiere mit smoothedBrightness für sanfte Übergänge
+    int smoothedDiff = abs((int)smoothedBrightness - (int)brightness);
+    
+    if (atBoundary || smoothedDiff > BRIGHTNESS_CHANGE_THRESHOLD) {
+      brightness = smoothedBrightness; // Verwende geglättete Helligkeit
       analogWrite(PIN_ENABLE, 1023 - brightness);
-      Serial.printf("Auto-Brightness: Raw=%d, EMA=%.1f -> Brightness=%d%s\n",
-                    rawSensorValue, smoothedSensorValue, brightness,
+      // #region agent log
+      debugLogJson("updateAutoBrightness", "Brightness updated", "D", "{\"brightness\":%d,\"rawSensorValue\":%d,\"smoothedSensorValue\":%.2f,\"newBrightness\":%d,\"smoothedBrightness\":%d,\"atBoundary\":%d}", brightness, rawSensorValue, smoothedSensorValue, newBrightness, smoothedBrightness, atBoundary ? 1 : 0);
+      // #endregion
+      Serial.printf("Auto-Brightness: Raw=%d, EMA=%.1f -> New=%d, Smoothed=%d%s\n",
+                    rawSensorValue, smoothedSensorValue, newBrightness, brightness,
                     atBoundary ? " (boundary)" : "");
+    } else {
+      // #region agent log
+      debugLogJson("updateAutoBrightness", "Brightness not updated (threshold)", "D", "{\"newBrightness\":%d,\"smoothedBrightness\":%d,\"currentBrightness\":%d,\"diff\":%d}", newBrightness, smoothedBrightness, brightness, smoothedDiff);
+      // #endregion
     }
   }
 
@@ -363,6 +434,11 @@ void mqttCallback(char* topic, byte* payload, unsigned int length) {
 
 // MQTT Verbindung aufbauen/wiederherstellen
 bool reconnectMQTT() {
+    // #region agent log
+    unsigned long reconnectStart = millis();
+    debugLogJson("reconnectMQTT", "MQTT reconnect start", "C", "{\"freeHeap\":%d}", ESP.getFreeHeap());
+    // #endregion
+  
   if (!mqttEnabled || mqttServer.length() == 0) {
     return false;
   }
@@ -383,6 +459,10 @@ bool reconnectMQTT() {
     connected = mqttClient.connect(clientId.c_str());
   }
 
+  // #region agent log
+  unsigned long reconnectDuration = millis() - reconnectStart;
+  // #endregion
+  
   if (connected) {
     Serial.println("MQTT connected!");
     // Topic abonnieren
@@ -390,9 +470,15 @@ bool reconnectMQTT() {
       mqttClient.subscribe(mqttPresenceTopic.c_str());
       Serial.printf("Subscribed to topic: %s\n", mqttPresenceTopic.c_str());
     }
+    // #region agent log
+    debugLogJson("reconnectMQTT", "MQTT reconnect success", "C", "{\"duration\":%lu}", reconnectDuration);
+    // #endregion
     return true;
   } else {
     Serial.printf("MQTT connection failed, rc=%d\n", mqttClient.state());
+    // #region agent log
+    debugLogJson("reconnectMQTT", "MQTT reconnect failed", "C", "{\"duration\":%lu,\"rc\":%d}", reconnectDuration, mqttClient.state());
+    // #endregion
     return false;
   }
 }
@@ -705,18 +791,34 @@ void setup() {
   Serial.printf("Starting up... Free heap: %d bytes\n", ESP.getFreeHeap());
   system_set_os_print(1); // Debug-Ausgaben aktivieren
 
+  // FIX: Watchdog sofort füttern (verhindert Neustarts während Setup)
+  ESP.wdtFeed();
+
+  // #region agent log
+  SPIFFS.begin();
+  SPIFFS.remove("/debug.log"); // Alte Logs löschen
+  debugLogJson("setup", "System startup", "A", "{\"freeHeap\":%d}", ESP.getFreeHeap());
+  // #endregion
+
   EEPROM.begin(EEPROM_SIZE);
   loadBrightnessFromStorage();
+  
+  // FIX: Watchdog während längerer Operationen füttern
+  ESP.wdtFeed();
 
   matrixSetup();
   pinMode(BUTTON_PIN, INPUT_PULLUP);
+  ESP.wdtFeed(); // Watchdog während Setup füttern
 
   startAnimation();
+  ESP.wdtFeed(); // Watchdog nach Animation füttern
 
   bool wifiConnected = setupWiFi();
+  ESP.wdtFeed(); // Watchdog nach WiFi-Setup füttern
   ntpConfigured = wifiConnected;
   if (wifiConnected) {
     setupNTP();
+    ESP.wdtFeed(); // Watchdog nach NTP-Setup füttern
   }
 
   server.on("/", handleRoot);
@@ -738,6 +840,15 @@ void setup() {
   server.on("/effect/plasma", []() { selectEffect(10); });
   server.on("/effect/ripple", []() { selectEffect(11); });
   server.on("/effect/sandclock", []() { selectEffect(12); });
+  server.on("/api/debuglog", []() {
+    File logFile = SPIFFS.open("/debug.log", "r");
+    if (logFile) {
+      server.streamFile(logFile, "application/x-ndjson");
+      logFile.close();
+    } else {
+      server.send(404, "text/plain", "Debug log not found");
+    }
+  });
   if (wifiConnected) {
     server.begin();
     serverStarted = true;
@@ -768,6 +879,26 @@ void loop() {
   static unsigned long lastBrightnessUpdate = 0;
   static unsigned long lastMqttReconnect = 0;
   static unsigned long lastPresenceCheck = 0;
+  static unsigned long lastWatchdogFeed = 0;
+  static unsigned long loopCount = 0;
+  
+  // FIX: Watchdog sofort füttern zu Beginn jedes Loops (verhindert Neustarts)
+  ESP.wdtFeed();
+  
+  // FIX: lastWatchdogFeed beim ersten Loop-Durchlauf initialisieren
+  unsigned long now = millis();
+  if (lastWatchdogFeed == 0) {
+    lastWatchdogFeed = now;
+  }
+
+  // #region agent log
+  loopCount++;
+  if (loopCount % 100 == 0) { // Jeden 100. Loop
+    unsigned long timeSinceWatchdog = now - lastWatchdogFeed;
+    int freeHeap = ESP.getFreeHeap();
+    debugLogJson("loop", "Loop iteration", "A", "{\"loopCount\":%lu,\"timeSinceWatchdog\":%lu,\"freeHeap\":%d}", loopCount, timeSinceWatchdog, freeHeap);
+  }
+  // #endregion
 
   server.handleClient();
   yield();
@@ -794,7 +925,15 @@ void loop() {
   }
 
   if (!ntpConfigured && WiFi.status() == WL_CONNECTED) {
+    // #region agent log
+    unsigned long ntpStart = millis();
+    debugLogJson("loop", "NTP setup start", "C", "{\"freeHeap\":%d}", ESP.getFreeHeap());
+    // #endregion
     setupNTP();
+    // #region agent log
+    unsigned long ntpDuration = millis() - ntpStart;
+    debugLogJson("loop", "NTP setup end", "C", "{\"duration\":%lu}", ntpDuration);
+    // #endregion
     ntpConfigured = true;
   }
 
@@ -824,10 +963,19 @@ void loop() {
   // Frame nur zeichnen wenn Display aktiviert ist
   if (millis() - lastFrameUpdate > 50) {
     if (displayEnabled) {
+      // #region agent log
+      unsigned long frameStart = millis();
+      // #endregion
       uint8_t frame[32];
       clearFrame(frame, sizeof(frame));
       currentEffect->draw(frame);
       shiftOutBuffer(frame, sizeof(frame));
+      // #region agent log
+      unsigned long frameDuration = millis() - frameStart;
+      if (frameDuration > 30) { // Nur loggen wenn langsam
+        debugLogJson("loop", "Frame draw slow", "B", "{\"duration\":%lu}", frameDuration);
+      }
+      // #endregion
     }
     lastFrameUpdate = millis();
   }
@@ -855,9 +1003,48 @@ void loop() {
 
   yield();
   delay(1);
-  ESP.wdtFeed();
+  
+  // #region agent log
+  unsigned long timeSinceWatchdog = now - lastWatchdogFeed;
+  if (timeSinceWatchdog > 5000) { // Warnung wenn länger als 5s
+    debugLogJson("loop", "Watchdog feed delayed", "A", "{\"timeSinceWatchdog\":%lu}", timeSinceWatchdog);
+  }
+  lastWatchdogFeed = now;
+  // #endregion
 }
+
+// #region agent log
+// Debug-Logging Funktion
+void debugLog(const char* location, const char* message, const char* hypothesisId, const char* dataJson) {
+  unsigned long now = millis();
+  int freeHeap = ESP.getFreeHeap();
+  
+  // Log in Datei schreiben
+  File logFile = SPIFFS.open("/debug.log", "a");
+  if (logFile) {
+    logFile.printf("{\"id\":\"log_%lu\",\"timestamp\":%lu,\"location\":\"%s\",\"message\":\"%s\",\"data\":%s,\"sessionId\":\"debug-session\",\"runId\":\"run1\",\"hypothesisId\":\"%s\",\"freeHeap\":%d,\"uptime\":%lu}\n",
+                   now, now, location, message, dataJson ? dataJson : "{}", hypothesisId, freeHeap, now);
+    logFile.close();
+  }
+  
+  // Auch über Serial ausgeben (für sofortige Sichtbarkeit)
+  Serial.printf("[DEBUG] %s:%s [%s] %s freeHeap=%d\n", location, message, hypothesisId, dataJson ? dataJson : "{}", freeHeap);
+}
+
+// Hilfsfunktion für JSON-String-Erstellung
+void debugLogJson(const char* location, const char* message, const char* hypothesisId, const char* format, ...) {
+  char dataJson[256];
+  va_list args;
+  va_start(args, format);
+  vsnprintf(dataJson, sizeof(dataJson), format, args);
+  va_end(args);
+  debugLog(location, message, hypothesisId, dataJson);
+}
+// #endregion
 
 void ICACHE_RAM_ATTR watchdogCallback() {
   Serial.println("WATCHDOG TRIGGERED!");
+  // #region agent log
+  // Watchdog-Callback kann nicht auf SPIFFS zugreifen, daher nur Serial
+  // #endregion
 }
