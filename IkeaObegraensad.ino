@@ -14,7 +14,7 @@ extern "C" {
 
 // Debug-Logging aktivieren/deaktivieren
 // Für Production-Builds: Kommentiere die nächste Zeile aus
-// #define DEBUG_LOGGING_ENABLED
+#define DEBUG_LOGGING_ENABLED
 
 #include "Matrix.h"
 #include "Effect.h"
@@ -122,6 +122,7 @@ const uint16_t EEPROM_MQTT_TOPIC_ADDR = 146;       // String (64 bytes)
 const uint16_t EEPROM_PRESENCE_TIMEOUT_ADDR = 210; // uint32_t (4 bytes)
 const uint16_t EEPROM_NTP_SERVER1_ADDR = 214;       // String (64 bytes)
 const uint16_t EEPROM_NTP_SERVER2_ADDR = 278;       // String (64 bytes)
+const uint16_t EEPROM_HOUR_FORMAT_ADDR = 342;       // bool (1 byte) 24h=1, 12h=0
 
 const uint8_t BUTTON_PIN = D4;
 
@@ -144,16 +145,16 @@ const uint8_t effectCount = sizeof(effects) / sizeof(effects[0]);
 uint8_t currentEffectIndex = 1; // start with clock
 Effect *currentEffect = effects[currentEffectIndex];
 // POSIX TZ String mit automatischer Sommer-/Winterzeit-Umstellung (DST)
-// Format: STD offset DST offset,start/time,end/time
-// Beispiel: CET-1CEST,M3.5.0,M10.5.0/3
-//   - CET = Central European Time (Standardzeit)
-//   - -1 = UTC+1 (Offset zur UTC)
-//   - CEST = Central European Summer Time (Sommerzeit)
-//   - M3.5.0 = März (M3), 5. Woche, Sonntag (0) = letzter Sonntag im März um 02:00 UTC
-//   - M10.5.0/3 = Oktober (M10), 5. Woche, Sonntag, um 03:00 UTC = letzter Sonntag im Oktober
-String tzString = "CET-1CEST,M3.5.0,M10.5.0/3"; // default Europe/Berlin mit DST
-yyyyyyyyString ntpServer1 = "pool.ntp.org"; // Primärer NTP-Server (konfigurierbar)
+// Format: STD<offset>DST<offset>,start[/time],end[/time]
+// Beispiel: CET-1CEST-2,M3.5.0/2,M10.5.0/3
+//   - CET-1 = Central European Time (Standardzeit), UTC+1 (Offset -1)
+//   - CEST-2 = Central European Summer Time (Sommerzeit), UTC+2 (Offset -2)
+//   - M3.5.0/2 = März (M3), 5. Woche, Sonntag (0) = letzter Sonntag im März um 02:00 Uhr lokaler Zeit
+//   - M10.5.0/3 = Oktober (M10), 5. Woche, Sonntag, um 03:00 Uhr lokaler Zeit = letzter Sonntag im Oktober
+String tzString = "CET-1CEST-2,M3.5.0/2,M10.5.0/3"; // default Europe/Berlin mit DST
+String ntpServer1 = "pool.ntp.org"; // Primärer NTP-Server (konfigurierbar)
 String ntpServer2 = "time.nist.gov"; // Sekundärer NTP-Server (konfigurierbar)
+bool use24HourFormat = true; // 24h-Format standardmäßig aktiv
 
 // Helper-Funktion für sichere Zeitdifferenz-Berechnung (handles millis() overflow)
 inline unsigned long timeDiff(unsigned long now, unsigned long then) {
@@ -164,6 +165,15 @@ inline unsigned long timeDiff(unsigned long now, unsigned long then) {
     // Overflow aufgetreten
     return (ULONG_MAX - then) + now + 1;
   }
+}
+
+int formatHourForDisplay(int hour) {
+  if (use24HourFormat) {
+    return hour;
+  }
+
+  int hour12 = hour % 12;
+  return hour12 == 0 ? 12 : hour12;
 }
 
 // Helper-Funktionen für String-Speicherung in EEPROM
@@ -242,6 +252,7 @@ void loadBrightnessFromStorage() {
     String loadedNtp2 = readStringFromEEPROM(EEPROM_NTP_SERVER2_ADDR, 64);
     if (loadedNtp1.length() > 0) ntpServer1 = loadedNtp1;
     if (loadedNtp2.length() > 0) ntpServer2 = loadedNtp2;
+    use24HourFormat = EEPROM.read(EEPROM_HOUR_FORMAT_ADDR) != 0;
 
     // Werte validieren und korrigieren falls nötig
     minBrightness = constrain(minBrightness, 0, 1023);
@@ -270,6 +281,7 @@ void loadBrightnessFromStorage() {
     presenceTimeout = 300000;
     ntpServer1 = "pool.ntp.org";
     ntpServer2 = "time.nist.gov";
+    use24HourFormat = true;
   }
 }
 
@@ -285,6 +297,7 @@ void persistBrightnessToStorage() {
   EEPROM.put(EEPROM_MAX_BRIGHTNESS_ADDR, maxBrightness);
   EEPROM.put(EEPROM_SENSOR_MIN_ADDR, sensorMin);
   EEPROM.put(EEPROM_SENSOR_MAX_ADDR, sensorMax);
+  EEPROM.write(EEPROM_HOUR_FORMAT_ADDR, use24HourFormat ? 1 : 0);
   
   // Checksumme berechnen und speichern
   uint16_t checksum = calculateEEPROMChecksum();
@@ -663,25 +676,33 @@ void handleStatus() {
   time_t now = time(nullptr);
   struct tm *t = localtime(&now);
   char buf[16];
+  int displayHour = t ? formatHourForDisplay(t->tm_hour) : 0;
+  const char* suffix = (!use24HourFormat && t) ? (t->tm_hour >= 12 ? " PM" : " AM") : "";
   if (t) {
-    snprintf(buf, sizeof(buf), "%02d:%02d:%02d", t->tm_hour, t->tm_min, t->tm_sec);
+    if (use24HourFormat) {
+      snprintf(buf, sizeof(buf), "%02d:%02d:%02d", displayHour, t->tm_min, t->tm_sec);
+    } else {
+      snprintf(buf, sizeof(buf), "%02d:%02d:%02d %s", displayHour, t->tm_min, t->tm_sec, suffix);
+    }
   } else {
     strncpy(buf, "--:--:--", sizeof(buf));
+    buf[sizeof(buf) - 1] = '\0';
   }
   uint16_t sensorValue = analogRead(LIGHT_SENSOR_PIN);
+  const char* hourFormatStr = use24HourFormat ? "24h" : "12h";
   
   // JSON mit snprintf für bessere Performance (statt String-Konkatenation)
   char json[768];
   String ipAddress = WiFi.localIP().toString();
   snprintf(json, sizeof(json),
-    "{\"time\":\"%s\",\"effect\":\"%s\",\"tz\":\"%s\",\"brightness\":%d,"
+    "{\"time\":\"%s\",\"effect\":\"%s\",\"tz\":\"%s\",\"hourFormat\":\"%s\",\"use24HourFormat\":%s,\"brightness\":%d,"
     "\"autoBrightness\":%s,\"minBrightness\":%d,\"maxBrightness\":%d,"
     "\"sensorMin\":%d,\"sensorMax\":%d,\"sensorValue\":%d,"
     "\"mqttEnabled\":%s,\"mqttConnected\":%s,\"mqttServer\":\"%s\","
     "\"mqttPort\":%d,\"mqttTopic\":\"%s\",\"presenceDetected\":%s,"
     "\"displayEnabled\":%s,\"presenceTimeout\":%lu,"
     "\"otaEnabled\":%s,\"otaHostname\":\"%s\",\"ipAddress\":\"%s\"}",
-    buf, currentEffect->name, tzString.c_str(), brightness,
+    buf, currentEffect->name, tzString.c_str(), hourFormatStr, use24HourFormat ? "true" : "false", brightness,
     autoBrightnessEnabled ? "true" : "false", minBrightness, maxBrightness,
     sensorMin, sensorMax, sensorValue,
     mqttEnabled ? "true" : "false", mqttClient.connected() ? "true" : "false",
@@ -701,10 +722,49 @@ void handleSetTimezone() {
     tzString = server.arg("tz");
     setenv("TZ", tzString.c_str(), 1);
     tzset();
+    // Debug: Neue Zeit nach Zeitzone-Änderung
+    time_t now = time(nullptr);
+    struct tm *local = localtime(&now);
+    if (local) {
+      Serial.printf("Timezone changed to: %s, Local time: %02d:%02d:%02d\n",
+                    tzString.c_str(), local->tm_hour, local->tm_min, local->tm_sec);
+    }
     server.send(200, "application/json", String("{\"tz\":\"") + tzString + "\"}" );
   } else {
     server.send(400, "text/plain", "Missing tz");
   }
+}
+
+void handleSetClockFormat() {
+  if (!checkRateLimit()) {
+    server.send(429, "application/json", "{\"error\":\"Too many requests\"}");
+    return;
+  }
+  if (!server.hasArg("format")) {
+    server.send(400, "text/plain", "Missing format");
+    return;
+  }
+
+  String format = server.arg("format");
+  format.trim();
+  format.toLowerCase();
+
+  bool newUse24Hour = true;
+  if (format == "24" || format == "24h") {
+    newUse24Hour = true;
+  } else if (format == "12" || format == "12h") {
+    newUse24Hour = false;
+  } else {
+    server.send(400, "application/json", "{\"error\":\"Invalid format, expected 12 or 24\"}");
+    return;
+  }
+
+  use24HourFormat = newUse24Hour;
+  persistBrightnessToStorage();
+
+  server.send(200, "application/json",
+              String("{\"hourFormat\":\"") + (use24HourFormat ? "24h" : "12h") +
+              "\",\"use24HourFormat\":" + (use24HourFormat ? "true" : "false") + "}");
 }
 
 void handleSetBrightness() {
@@ -954,6 +1014,18 @@ void setupNTP() {
     Serial.println("\nNTP sync failed, continuing anyway...");
   } else {
     Serial.println("\nNTP sync successful!");
+    // Debug: UTC und lokale Zeit ausgeben
+    time_t now = time(nullptr);
+    struct tm *utc = gmtime(&now);
+    struct tm *local = localtime(&now);
+    if (utc && local) {
+      Serial.printf("UTC time: %04d-%02d-%02d %02d:%02d:%02d\n",
+                    utc->tm_year + 1900, utc->tm_mon + 1, utc->tm_mday,
+                    utc->tm_hour, utc->tm_min, utc->tm_sec);
+      Serial.printf("Local time: %04d-%02d-%02d %02d:%02d:%02d (TZ: %s)\n",
+                    local->tm_year + 1900, local->tm_mon + 1, local->tm_mday,
+                    local->tm_hour, local->tm_min, local->tm_sec, tzString.c_str());
+    }
   }
 }
 
@@ -1071,6 +1143,7 @@ void setup() {
   server.on("/", handleRoot);
   server.on("/api/status", handleStatus);
   server.on("/api/setTimezone", handleSetTimezone);
+  server.on("/api/setClockFormat", handleSetClockFormat);
   server.on("/api/setBrightness", handleSetBrightness);
   server.on("/api/setAutoBrightness", handleSetAutoBrightness);
   server.on("/api/setMqtt", handleSetMqtt);
@@ -1119,7 +1192,7 @@ void setup() {
       "\"sensorMin\":%d,\"sensorMax\":%d,"
       "\"mqttEnabled\":%s,\"mqttServer\":\"%s\",\"mqttPort\":%d,"
       "\"mqttUser\":\"%s\",\"mqttTopic\":\"%s\",\"presenceTimeout\":%lu,"
-      "\"tz\":\"%s\",\"ntpServer1\":\"%s\",\"ntpServer2\":\"%s\""
+      "\"tz\":\"%s\",\"hourFormat\":\"%s\",\"use24HourFormat\":%s,\"ntpServer1\":\"%s\",\"ntpServer2\":\"%s\""
       "}}",
       EEPROM_VERSION, (unsigned long)now, calculateEEPROMChecksum(),
       brightness, autoBrightnessEnabled ? "true" : "false",
@@ -1127,7 +1200,7 @@ void setup() {
       sensorMin, sensorMax,
       mqttEnabled ? "true" : "false", mqttServer.c_str(), mqttPort,
       mqttUser.c_str(), mqttPresenceTopic.c_str(), presenceTimeout,
-      tzString.c_str(), ntpServer1.c_str(), ntpServer2.c_str());
+      tzString.c_str(), use24HourFormat ? "24h" : "12h", use24HourFormat ? "true" : "false", ntpServer1.c_str(), ntpServer2.c_str());
     
     server.send(200, "application/json", json);
   });

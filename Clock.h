@@ -6,6 +6,9 @@
 #include "ClockFont.h"
 #include <time.h>
 
+extern bool use24HourFormat;
+int formatHourForDisplay(int hour);
+
 namespace ClockEffect {
   void drawDigit(uint8_t *frame, int digit, uint8_t xOffset, uint8_t yOffset) {
     for (uint8_t y = 0; y < ClockFont::HEIGHT; ++y) {
@@ -25,7 +28,7 @@ namespace ClockEffect {
   inline void draw(uint8_t *frame) {
     time_t now = time(nullptr);
     struct tm *t = localtime(&now);
-    int h = t ? t->tm_hour : 0;
+    int h = t ? formatHourForDisplay(t->tm_hour) : 0;
     int m = t ? t->tm_min : 0;
     // Render two digits per row: hours on top, minutes on bottom.
     // Digits are centered horizontally with a small gap between them.
