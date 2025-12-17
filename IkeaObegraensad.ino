@@ -5,6 +5,7 @@
 #include <EEPROM.h>
 #include <time.h>
 #include <stdlib.h>
+#include <string.h>
 #include <stdarg.h>
 #include <FS.h>
 #include <ArduinoOTA.h>
@@ -14,7 +15,7 @@ extern "C" {
 
 // Debug-Logging aktivieren/deaktivieren
 // Für Production-Builds: Kommentiere die nächste Zeile aus
-#define DEBUG_LOGGING_ENABLED
+// #define DEBUG_LOGGING_ENABLED
 
 #include "Matrix.h"
 #include "Effect.h"
@@ -152,8 +153,8 @@ Effect *currentEffect = effects[currentEffectIndex];
 //   - M3.5.0/2 = März (M3), 5. Woche, Sonntag (0) = letzter Sonntag im März um 02:00 Uhr lokaler Zeit
 //   - M10.5.0/3 = Oktober (M10), 5. Woche, Sonntag, um 03:00 Uhr lokaler Zeit = letzter Sonntag im Oktober
 String tzString = "CET-1CEST-2,M3.5.0/2,M10.5.0/3"; // default Europe/Berlin mit DST
-String ntpServer1 = "pool.ntp.org"; // Primärer NTP-Server (konfigurierbar)
-String ntpServer2 = "time.nist.gov"; // Sekundärer NTP-Server (konfigurierbar)
+String ntpServer1 = "0.de.pool.ntp.org"; // Primärer NTP-Server (konfigurierbar)
+String ntpServer2 = "1.de.pool.ntp.org"; // Sekundärer NTP-Server (konfigurierbar)
 bool use24HourFormat = true; // 24h-Format standardmäßig aktiv
 
 // Helper-Funktion für sichere Zeitdifferenz-Berechnung (handles millis() overflow)
@@ -250,8 +251,13 @@ void loadBrightnessFromStorage() {
     // NTP-Server laden
     String loadedNtp1 = readStringFromEEPROM(EEPROM_NTP_SERVER1_ADDR, 64);
     String loadedNtp2 = readStringFromEEPROM(EEPROM_NTP_SERVER2_ADDR, 64);
-    if (loadedNtp1.length() > 0) ntpServer1 = loadedNtp1;
-    if (loadedNtp2.length() > 0) ntpServer2 = loadedNtp2;
+    // Validierung: Nur verwenden wenn String nicht leer ist und gültig aussieht (enthält Punkt für Domain)
+    if (loadedNtp1.length() > 0 && loadedNtp1.length() < 64 && loadedNtp1.indexOf('.') > 0) {
+      ntpServer1 = loadedNtp1;
+    }
+    if (loadedNtp2.length() > 0 && loadedNtp2.length() < 64 && loadedNtp2.indexOf('.') > 0) {
+      ntpServer2 = loadedNtp2;
+    }
     use24HourFormat = EEPROM.read(EEPROM_HOUR_FORMAT_ADDR) != 0;
 
     // Werte validieren und korrigieren falls nötig
@@ -995,7 +1001,45 @@ bool setupWiFi() {
 }
 
 void setupNTP() {
-  configTime(0, 0, ntpServer1.c_str(), ntpServer2.c_str());
+  // WICHTIG: configTime() speichert möglicherweise nur die Pointer, nicht die Strings
+  // Daher müssen wir sicherstellen, dass die Pointer während der gesamten Laufzeit gültig bleiben
+  // Lösung: Statische char-Arrays verwenden, die während der gesamten Laufzeit existieren
+  static char ntp1[64] = {0};
+  static char ntp2[64] = {0};
+  
+  // Validierung: Prüfe ob Strings gültig sind, sonst verwende Standard-Server
+  const char* server1;
+  const char* server2;
+  
+  // Prüfe ob Strings gültig sind (nicht leer und nicht nur Whitespace)
+  if (ntpServer1.length() > 0 && ntpServer1.length() < 64) {
+    server1 = ntpServer1.c_str();
+  } else {
+    server1 = "pool.ntp.org";
+    Serial.println("Warning: ntpServer1 invalid, using default");
+  }
+  
+  if (ntpServer2.length() > 0 && ntpServer2.length() < 64) {
+    server2 = ntpServer2.c_str();
+  } else {
+    server2 = "time.nist.gov";
+    Serial.println("Warning: ntpServer2 invalid, using default");
+  }
+  
+  // Arrays zuerst mit Null-Bytes füllen (Sicherheit)
+  memset(ntp1, 0, sizeof(ntp1));
+  memset(ntp2, 0, sizeof(ntp2));
+  
+  // Strings in statische Arrays kopieren (bleiben während der gesamten Laufzeit gültig)
+  strncpy(ntp1, server1, sizeof(ntp1) - 1);
+  ntp1[sizeof(ntp1) - 1] = '\0';
+  strncpy(ntp2, server2, sizeof(ntp2) - 1);
+  ntp2[sizeof(ntp2) - 1] = '\0';
+  
+  Serial.printf("NTP servers: '%s', '%s'\n", ntp1, ntp2);
+  Serial.printf("Original strings - ntpServer1.length()=%d, ntpServer2.length()=%d\n", ntpServer1.length(), ntpServer2.length());
+  
+  configTime(0, 0, ntp1, ntp2);
   // Zeitzone mit POSIX TZ String setzen - DST (Sommer-/Winterzeit) wird automatisch berücksichtigt
   setenv("TZ", tzString.c_str(), 1);
   tzset(); // Zeitzone anwenden
