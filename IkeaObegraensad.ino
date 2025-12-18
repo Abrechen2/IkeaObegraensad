@@ -1,6 +1,7 @@
 #include <Arduino.h>
 #include <ESP8266WiFi.h>
 #include <ESP8266WebServer.h>
+#include <ESP8266HTTPClient.h>
 #include <PubSubClient.h>
 #include <EEPROM.h>
 #include <time.h>
@@ -15,7 +16,7 @@ extern "C" {
 
 // Debug-Logging aktivieren/deaktivieren
 // Für Production-Builds: Kommentiere die nächste Zeile aus
-// #define DEBUG_LOGGING_ENABLED
+#define DEBUG_LOGGING_ENABLED
 
 #include "Matrix.h"
 #include "Effect.h"
@@ -66,6 +67,18 @@ const uint8_t RATE_LIMIT_MAX_REQUESTS = 20; // Max. 20 Requests pro Zeitfenster
 unsigned long mqttReconnectBackoff = 1000; // Start mit 1 Sekunde
 const unsigned long MQTT_MAX_BACKOFF = 60000; // Maximal 60 Sekunden
 const unsigned long MQTT_BACKOFF_MULTIPLIER = 2; // Verdoppeln bei jedem Fehlschlag
+
+// Log-Server Konfiguration (kann in secrets.h überschrieben werden)
+#ifndef LOG_SERVER_URL
+#define LOG_SERVER_URL "http://192.168.178.36:402/logs"  // Leer = deaktiviert, z.B. "http://192.168.1.100:3000/logs"
+#endif
+#ifndef LOG_SERVER_INTERVAL
+#define LOG_SERVER_INTERVAL 60000  // Intervall in ms für automatisches Senden (Standard: 60 Sekunden)
+#endif
+
+String logServerUrl = LOG_SERVER_URL;
+unsigned long lastLogUpload = 0;
+const unsigned long LOG_UPLOAD_INTERVAL = LOG_SERVER_INTERVAL;
 const unsigned long MQTT_CONNECT_TIMEOUT = 5000; // 5 Sekunden Timeout für Connect-Versuch
 
 const uint16_t DEFAULT_BRIGHTNESS = 512;
@@ -330,7 +343,25 @@ void persistMqttToStorage() {
   uint16_t checksum = calculateEEPROMChecksum();
   EEPROM.put(EEPROM_CHECKSUM_ADDR, checksum);
   
+  // #region agent log
+  unsigned long commitStart = millis();
+  int freeHeapBefore = ESP.getFreeHeap();
+  // #endregion
   EEPROM.commit();
+  // #region agent log
+  unsigned long commitDuration = millis() - commitStart;
+  int freeHeapAfter = ESP.getFreeHeap();
+  if (commitDuration > 100 || freeHeapBefore != freeHeapAfter) {
+    if (SPIFFS.exists("/")) {
+      File logFile = SPIFFS.open("/debug.log", "a");
+      if (logFile) {
+        logFile.printf("{\"id\":\"eeprom_mqtt_%lu\",\"timestamp\":%lu,\"location\":\"persistMqttToStorage\",\"message\":\"EEPROM commit\",\"data\":{\"duration\":%lu,\"freeHeapBefore\":%d,\"freeHeapAfter\":%d},\"sessionId\":\"debug-session\",\"runId\":\"run1\",\"hypothesisId\":\"C\"}\n",
+                       millis(), millis(), commitDuration, freeHeapBefore, freeHeapAfter);
+        logFile.close();
+      }
+    }
+  }
+  // #endregion
 }
 
 // VERBESSERT: Non-blocking Sensor-Sampling (verhindert Watchdog-Resets)
@@ -558,10 +589,19 @@ void mqttCallback(char* topic, byte* payload, unsigned int length) {
 
 // MQTT Verbindung aufbauen/wiederherstellen
 bool reconnectMQTT() {
-#ifdef DEBUG_LOGGING_ENABLED
-    unsigned long reconnectStart = millis();
-    debugLogJson("reconnectMQTT", "MQTT reconnect start", "C", "{\"freeHeap\":%d}", ESP.getFreeHeap());
-#endif
+  // #region agent log
+  unsigned long reconnectStart = millis();
+  int freeHeapBefore = ESP.getFreeHeap();
+  int maxFreeBlockBefore = ESP.getMaxFreeBlockSize();
+  if (SPIFFS.exists("/")) {
+    File logFile = SPIFFS.open("/debug.log", "a");
+    if (logFile) {
+      logFile.printf("{\"id\":\"mqtt_start_%lu\",\"timestamp\":%lu,\"location\":\"reconnectMQTT\",\"message\":\"MQTT reconnect start\",\"data\":{\"freeHeap\":%d,\"maxFreeBlock\":%d},\"sessionId\":\"debug-session\",\"runId\":\"run1\",\"hypothesisId\":\"C\"}\n",
+                     millis(), millis(), freeHeapBefore, maxFreeBlockBefore);
+      logFile.close();
+    }
+  }
+  // #endregion
   
   if (!mqttEnabled || mqttServer.length() == 0) {
     return false;
@@ -583,11 +623,17 @@ bool reconnectMQTT() {
   
   bool connected = false;
   unsigned long connectStart = millis();
+  // #region agent log
+  ESP.wdtFeed(); // Watchdog vor blockierender Operation füttern
+  // #endregion
   if (mqttUser.length() > 0) {
     connected = mqttClient.connect(clientId.c_str(), mqttUser.c_str(), mqttPassword.c_str());
   } else {
     connected = mqttClient.connect(clientId.c_str());
   }
+  // #region agent log
+  ESP.wdtFeed(); // Watchdog nach blockierender Operation füttern
+  // #endregion
   
   // Prüfe ob Connect zu lange gedauert hat (Fallback)
   unsigned long connectDuration = millis() - connectStart;
@@ -596,9 +642,11 @@ bool reconnectMQTT() {
     connected = false;
   }
 
-#ifdef DEBUG_LOGGING_ENABLED
+  // #region agent log
   unsigned long reconnectDuration = millis() - reconnectStart;
-#endif
+  int freeHeapAfter = ESP.getFreeHeap();
+  int maxFreeBlockAfter = ESP.getMaxFreeBlockSize();
+  // #endregion
   
   if (connected) {
     Serial.println("MQTT connected!");
@@ -609,9 +657,16 @@ bool reconnectMQTT() {
       mqttClient.subscribe(mqttPresenceTopic.c_str());
       Serial.printf("Subscribed to topic: %s\n", mqttPresenceTopic.c_str());
     }
-#ifdef DEBUG_LOGGING_ENABLED
-    debugLogJson("reconnectMQTT", "MQTT reconnect success", "C", "{\"duration\":%lu}", reconnectDuration);
-#endif
+    // #region agent log
+    if (SPIFFS.exists("/")) {
+      File logFile = SPIFFS.open("/debug.log", "a");
+      if (logFile) {
+        logFile.printf("{\"id\":\"mqtt_success_%lu\",\"timestamp\":%lu,\"location\":\"reconnectMQTT\",\"message\":\"MQTT reconnect success\",\"data\":{\"duration\":%lu,\"freeHeapBefore\":%d,\"freeHeapAfter\":%d,\"maxFreeBlockBefore\":%d,\"maxFreeBlockAfter\":%d},\"sessionId\":\"debug-session\",\"runId\":\"run1\",\"hypothesisId\":\"C\"}\n",
+                       millis(), millis(), reconnectDuration, freeHeapBefore, freeHeapAfter, maxFreeBlockBefore, maxFreeBlockAfter);
+        logFile.close();
+      }
+    }
+    // #endregion
     return true;
   } else {
     Serial.printf("MQTT connection failed, rc=%d, next retry in %lu ms\n", mqttClient.state(), mqttReconnectBackoff);
@@ -620,9 +675,16 @@ bool reconnectMQTT() {
     if (mqttReconnectBackoff > MQTT_MAX_BACKOFF) {
       mqttReconnectBackoff = MQTT_MAX_BACKOFF;
     }
-#ifdef DEBUG_LOGGING_ENABLED
-    debugLogJson("reconnectMQTT", "MQTT reconnect failed", "C", "{\"duration\":%lu,\"rc\":%d,\"nextBackoff\":%lu}", reconnectDuration, mqttClient.state(), mqttReconnectBackoff);
-#endif
+    // #region agent log
+    if (SPIFFS.exists("/")) {
+      File logFile = SPIFFS.open("/debug.log", "a");
+      if (logFile) {
+        logFile.printf("{\"id\":\"mqtt_failed_%lu\",\"timestamp\":%lu,\"location\":\"reconnectMQTT\",\"message\":\"MQTT reconnect failed\",\"data\":{\"duration\":%lu,\"rc\":%d,\"nextBackoff\":%lu,\"freeHeapBefore\":%d,\"freeHeapAfter\":%d,\"maxFreeBlockBefore\":%d,\"maxFreeBlockAfter\":%d},\"sessionId\":\"debug-session\",\"runId\":\"run1\",\"hypothesisId\":\"C\"}\n",
+                       millis(), millis(), reconnectDuration, mqttClient.state(), mqttReconnectBackoff, freeHeapBefore, freeHeapAfter, maxFreeBlockBefore, maxFreeBlockAfter);
+        logFile.close();
+      }
+    }
+    // #endregion
     return false;
   }
 }
@@ -1081,9 +1143,21 @@ void setup() {
   // FIX: Watchdog sofort füttern (verhindert Neustarts während Setup)
   ESP.wdtFeed();
 
+  // SPIFFS initialisieren (für Restart-Logging und ggf. Debug-Logging)
+  bool spiffsOk = SPIFFS.begin();
+  
+  // Automatisches Restart-Logging (immer aktiv, unabhängig von DEBUG_LOGGING_ENABLED)
+  if (spiffsOk) {
+    logRestart();
+    String resetReason = ESP.getResetReason();
+    int freeHeap = ESP.getFreeHeap();
+    int maxFreeBlock = ESP.getMaxFreeBlockSize();
+    Serial.printf("Reset reason: %s, Free heap: %d, Max free block: %d\n", resetReason.c_str(), freeHeap, maxFreeBlock);
+  }
+
 #ifdef DEBUG_LOGGING_ENABLED
-  // SPIFFS initialisieren mit Fehlerbehandlung
-  if (!SPIFFS.begin()) {
+  // Debug-Logging initialisieren (nur wenn Flag gesetzt)
+  if (!spiffsOk) {
     Serial.println("SPIFFS initialization failed! Debug logging disabled.");
   } else {
     FSInfo fs_info;
@@ -1107,10 +1181,7 @@ void setup() {
     }
     debugLogJson("setup", "System startup", "A", "{\"freeHeap\":%d}", ESP.getFreeHeap());
   }
-#else
-  // SPIFFS initialisieren (ohne Debug-Logging)
-  SPIFFS.begin();
-#endif
+#endif // DEBUG_LOGGING_ENABLED
 
   EEPROM.begin(EEPROM_SIZE);
   loadBrightnessFromStorage();
@@ -1331,6 +1402,28 @@ void loop() {
   static unsigned long lastPresenceCheck = 0;
   static unsigned long lastWatchdogFeed = 0;
   static unsigned long loopCount = 0;
+  static unsigned long lastLoopStart = 0;
+  
+  // #region agent log
+  unsigned long loopStart = millis();
+  unsigned long loopDuration = 0;
+  if (lastLoopStart > 0) {
+    loopDuration = timeDiff(loopStart, lastLoopStart);
+    if (loopDuration > 100) { // Warnung wenn Loop länger als 100ms
+      int freeHeap = ESP.getFreeHeap();
+      int maxFreeBlock = ESP.getMaxFreeBlockSize();
+      if (SPIFFS.exists("/")) {
+        File logFile = SPIFFS.open("/debug.log", "a");
+        if (logFile) {
+          logFile.printf("{\"id\":\"loop_slow_%lu\",\"timestamp\":%lu,\"location\":\"loop\",\"message\":\"Loop duration slow\",\"data\":{\"duration\":%lu,\"freeHeap\":%d,\"maxFreeBlock\":%d},\"sessionId\":\"debug-session\",\"runId\":\"run1\",\"hypothesisId\":\"A\"}\n",
+                         millis(), millis(), loopDuration, freeHeap, maxFreeBlock);
+          logFile.close();
+        }
+      }
+    }
+  }
+  lastLoopStart = loopStart;
+  // #endregion
   
   // FIX: Watchdog sofort füttern zu Beginn jedes Loops (verhindert Neustarts)
   ESP.wdtFeed();
@@ -1340,6 +1433,23 @@ void loop() {
   if (lastWatchdogFeed == 0) {
     lastWatchdogFeed = now;
   }
+  
+  // #region agent log
+  unsigned long timeSinceWatchdog = timeDiff(now, lastWatchdogFeed);
+  if (timeSinceWatchdog > 5000) { // Warnung wenn länger als 5s seit letztem Feed
+    int freeHeap = ESP.getFreeHeap();
+    int maxFreeBlock = ESP.getMaxFreeBlockSize();
+    if (SPIFFS.exists("/")) {
+      File logFile = SPIFFS.open("/debug.log", "a");
+      if (logFile) {
+        logFile.printf("{\"id\":\"watchdog_delayed_%lu\",\"timestamp\":%lu,\"location\":\"loop\",\"message\":\"Watchdog feed delayed\",\"data\":{\"timeSinceWatchdog\":%lu,\"freeHeap\":%d,\"maxFreeBlock\":%d},\"sessionId\":\"debug-session\",\"runId\":\"run1\",\"hypothesisId\":\"A\"}\n",
+                       millis(), millis(), timeSinceWatchdog, freeHeap, maxFreeBlock);
+        logFile.close();
+      }
+    }
+  }
+  lastWatchdogFeed = now;
+  // #endregion
 
 #ifdef DEBUG_LOGGING_ENABLED
   loopCount++;
@@ -1367,7 +1477,29 @@ void loop() {
   if (timeDiff(millis(), lastWiFiCheck) > 30000) {
     if (WiFi.status() != WL_CONNECTED) {
       Serial.println("WiFi lost, reconnecting...");
+      // #region agent log
+      unsigned long wifiReconnectStart = millis();
+      int freeHeapBefore = ESP.getFreeHeap();
+      int maxFreeBlockBefore = ESP.getMaxFreeBlockSize();
+      ESP.wdtFeed(); // Watchdog vor blockierender Operation füttern
+      // #endregion
       WiFi.reconnect();
+      // #region agent log
+      unsigned long wifiReconnectDuration = millis() - wifiReconnectStart;
+      int freeHeapAfter = ESP.getFreeHeap();
+      int maxFreeBlockAfter = ESP.getMaxFreeBlockSize();
+      ESP.wdtFeed(); // Watchdog nach blockierender Operation füttern
+      if (wifiReconnectDuration > 1000 || freeHeapBefore != freeHeapAfter) {
+        if (SPIFFS.exists("/")) {
+          File logFile = SPIFFS.open("/debug.log", "a");
+          if (logFile) {
+            logFile.printf("{\"id\":\"wifi_reconnect_%lu\",\"timestamp\":%lu,\"location\":\"loop\",\"message\":\"WiFi reconnect\",\"data\":{\"duration\":%lu,\"freeHeapBefore\":%d,\"freeHeapAfter\":%d,\"maxFreeBlockBefore\":%d,\"maxFreeBlockAfter\":%d},\"sessionId\":\"debug-session\",\"runId\":\"run1\",\"hypothesisId\":\"C\"}\n",
+                           millis(), millis(), wifiReconnectDuration, freeHeapBefore, freeHeapAfter, maxFreeBlockBefore, maxFreeBlockAfter);
+            logFile.close();
+          }
+        }
+      }
+      // #endregion
       serverStarted = false;
       ntpConfigured = false;
     }
@@ -1381,16 +1513,42 @@ void loop() {
   }
 
   if (!ntpConfigured && WiFi.status() == WL_CONNECTED) {
-#ifdef DEBUG_LOGGING_ENABLED
+    // #region agent log
     unsigned long ntpStart = millis();
-    debugLogJson("loop", "NTP setup start", "C", "{\"freeHeap\":%d}", ESP.getFreeHeap());
-#endif
+    int freeHeapBefore = ESP.getFreeHeap();
+    int maxFreeBlockBefore = ESP.getMaxFreeBlockSize();
+    if (SPIFFS.exists("/")) {
+      File logFile = SPIFFS.open("/debug.log", "a");
+      if (logFile) {
+        logFile.printf("{\"id\":\"ntp_start_%lu\",\"timestamp\":%lu,\"location\":\"loop\",\"message\":\"NTP setup start\",\"data\":{\"freeHeap\":%d,\"maxFreeBlock\":%d},\"sessionId\":\"debug-session\",\"runId\":\"run1\",\"hypothesisId\":\"C\"}\n",
+                       millis(), millis(), freeHeapBefore, maxFreeBlockBefore);
+        logFile.close();
+      }
+    }
+    // #endregion
     setupNTP();
-#ifdef DEBUG_LOGGING_ENABLED
+    // #region agent log
     unsigned long ntpDuration = millis() - ntpStart;
-    debugLogJson("loop", "NTP setup end", "C", "{\"duration\":%lu}", ntpDuration);
-#endif
+    int freeHeapAfter = ESP.getFreeHeap();
+    int maxFreeBlockAfter = ESP.getMaxFreeBlockSize();
+    if (SPIFFS.exists("/")) {
+      File logFile = SPIFFS.open("/debug.log", "a");
+      if (logFile) {
+        logFile.printf("{\"id\":\"ntp_end_%lu\",\"timestamp\":%lu,\"location\":\"loop\",\"message\":\"NTP setup end\",\"data\":{\"duration\":%lu,\"freeHeapBefore\":%d,\"freeHeapAfter\":%d,\"maxFreeBlockBefore\":%d,\"maxFreeBlockAfter\":%d},\"sessionId\":\"debug-session\",\"runId\":\"run1\",\"hypothesisId\":\"C\"}\n",
+                       millis(), millis(), ntpDuration, freeHeapBefore, freeHeapAfter, maxFreeBlockBefore, maxFreeBlockAfter);
+        logFile.close();
+      }
+    }
+    // #endregion
     ntpConfigured = true;
+  }
+
+  // Automatisches Senden von Logs an Server (falls konfiguriert)
+  if (WiFi.status() == WL_CONNECTED && logServerUrl.length() > 0) {
+    if (timeDiff(millis(), lastLogUpload) >= LOG_UPLOAD_INTERVAL) {
+      sendLogsToServer();
+      lastLogUpload = millis();
+    }
   }
 
   // MQTT Reconnection mit Exponential Backoff
@@ -1437,10 +1595,26 @@ void loop() {
   }
 
   if (timeDiff(millis(), lastStatusPrint) > 60000) {
-    Serial.printf("Uptime: %lus, Free heap: %d bytes, Display: %s, Presence: %s\n",
-                  millis() / 1000, ESP.getFreeHeap(),
+    int freeHeap = ESP.getFreeHeap();
+    int maxFreeBlock = ESP.getMaxFreeBlockSize();
+    Serial.printf("Uptime: %lus, Free heap: %d bytes, Max free block: %d bytes, Display: %s, Presence: %s\n",
+                  millis() / 1000, freeHeap, maxFreeBlock,
                   displayEnabled ? "ON" : "OFF",
                   presenceDetected ? "DETECTED" : "NOT DETECTED");
+    // #region agent log
+    // Regelmäßige Heap-Überwachung (Hypothese B: Heap-Fragmentierung)
+    int heapFragmentation = freeHeap - maxFreeBlock;
+    if (heapFragmentation > 10000 || freeHeap < 10000 || maxFreeBlock < 5000) {
+      if (SPIFFS.exists("/")) {
+        File logFile = SPIFFS.open("/debug.log", "a");
+        if (logFile) {
+          logFile.printf("{\"id\":\"heap_status_%lu\",\"timestamp\":%lu,\"location\":\"loop\",\"message\":\"Heap status check\",\"data\":{\"freeHeap\":%d,\"maxFreeBlock\":%d,\"fragmentation\":%d,\"uptime\":%lu},\"sessionId\":\"debug-session\",\"runId\":\"run1\",\"hypothesisId\":\"B\"}\n",
+                         millis(), millis(), freeHeap, maxFreeBlock, heapFragmentation, millis() / 1000);
+          logFile.close();
+        }
+      }
+    }
+    // #endregion
     lastStatusPrint = millis();
   }
 
@@ -1459,14 +1633,96 @@ void loop() {
 
   yield();
   delay(1);
-  
-#ifdef DEBUG_LOGGING_ENABLED
-  unsigned long timeSinceWatchdog = timeDiff(now, lastWatchdogFeed);
-  if (timeSinceWatchdog > 5000) { // Warnung wenn länger als 5s
-    debugLogJson("loop", "Watchdog feed delayed", "A", "{\"timeSinceWatchdog\":%lu}", timeSinceWatchdog);
+}
+
+// Funktion zum Senden von Logs an einen Server
+// Sendet alle Logs aus /debug.log als NDJSON (eine Zeile pro JSON-Objekt) per HTTP POST
+// Löscht die Datei nach erfolgreichem Senden (HTTP 200-299)
+// Konfiguration: Definiere LOG_SERVER_URL in secrets.h (z.B. "http://192.168.1.100:3000/logs")
+// Deaktiviert wenn LOG_SERVER_URL leer oder nicht definiert ist
+bool sendLogsToServer() {
+  // Prüfe ob WiFi verbunden und Server-URL gesetzt ist
+  if (WiFi.status() != WL_CONNECTED || logServerUrl.length() == 0) {
+    return false;
   }
-  lastWatchdogFeed = now;
-#endif
+  
+  // Prüfe ob Log-Datei existiert
+  if (!SPIFFS.exists("/debug.log")) {
+    return true; // Keine Logs zum Senden ist kein Fehler
+  }
+  
+  File logFile = SPIFFS.open("/debug.log", "r");
+  if (!logFile) {
+    Serial.println("[LOG_SERVER] Fehler beim Öffnen der Log-Datei");
+    return false;
+  }
+  
+  // Prüfe Dateigröße (max 32KB zum Senden auf einmal)
+  size_t fileSize = logFile.size();
+  if (fileSize == 0) {
+    logFile.close();
+    return true; // Leere Datei ist kein Fehler
+  }
+  
+  if (fileSize > 32768) {
+    Serial.printf("[LOG_SERVER] Log-Datei zu groß (%d bytes), überspringe Sendung\n", fileSize);
+    logFile.close();
+    return false;
+  }
+  
+  // Lese gesamte Datei in String (reserviere Speicher vorher)
+  String payload;
+  payload.reserve(fileSize + 1);
+  
+  while (logFile.available()) {
+    char c = logFile.read();
+    payload += c;
+    yield(); // Wichtig: yield für Watchdog
+  }
+  logFile.close();
+  
+  // Erstelle HTTP-Client und sende
+  HTTPClient http;
+  http.begin(espClient, logServerUrl);
+  http.addHeader("Content-Type", "application/x-ndjson"); // NDJSON Format
+  http.setTimeout(15000); // 15 Sekunden Timeout (für Connect und Read)
+  
+  ESP.wdtFeed(); // Watchdog vor blockierender Operation
+  int httpCode = http.POST(payload);
+  ESP.wdtFeed(); // Watchdog nach blockierender Operation
+  
+  http.end();
+  
+  // Prüfe Antwort-Code
+  if (httpCode >= 200 && httpCode < 300) {
+    // Erfolgreich gesendet - lösche Log-Datei
+    SPIFFS.remove("/debug.log");
+    Serial.printf("[LOG_SERVER] Logs erfolgreich gesendet (%d bytes, HTTP %d)\n", fileSize, httpCode);
+    return true;
+  } else {
+    Serial.printf("[LOG_SERVER] Fehler beim Senden: HTTP %d\n", httpCode);
+    return false;
+  }
+}
+
+// Funktion zum automatischen Speichern von Restart-Logs (immer aktiv)
+// Diese Funktion wird bei jedem Systemstart automatisch aufgerufen
+void logRestart() {
+  if (!SPIFFS.exists("/")) {
+    return; // SPIFFS nicht verfügbar
+  }
+  
+  String resetReason = ESP.getResetReason();
+  int freeHeap = ESP.getFreeHeap();
+  int maxFreeBlock = ESP.getMaxFreeBlockSize();
+  unsigned long uptime = millis();
+  
+  File logFile = SPIFFS.open("/debug.log", "a");
+  if (logFile) {
+    logFile.printf("{\"id\":\"restart_%lu\",\"timestamp\":%lu,\"location\":\"setup\",\"message\":\"System restart detected\",\"data\":{\"resetReason\":\"%s\",\"freeHeap\":%d,\"maxFreeBlock\":%d,\"uptime\":%lu},\"sessionId\":\"debug-session\",\"runId\":\"run1\",\"hypothesisId\":\"A\"}\n",
+                   uptime, uptime, resetReason.c_str(), freeHeap, maxFreeBlock, uptime);
+    logFile.close();
+  }
 }
 
 #ifdef DEBUG_LOGGING_ENABLED
