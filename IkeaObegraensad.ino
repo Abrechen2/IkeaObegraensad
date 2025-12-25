@@ -2,6 +2,7 @@
 #include <ESP8266WiFi.h>
 #include <ESP8266WebServer.h>
 #include <ESP8266HTTPClient.h>
+#include <ESP8266mDNS.h>
 #include <PubSubClient.h>
 #include <EEPROM.h>
 #include <time.h>
@@ -779,8 +780,20 @@ void handleStatus() {
   const char* hourFormatStr = use24HourFormat ? "24h" : "12h";
   
   // JSON mit snprintf für bessere Performance (statt String-Konkatenation)
-  char json[768];
+  // Buffer erweitert für Effekt-Liste
+  char json[1024];
   String ipAddress = WiFi.localIP().toString();
+  
+  // Effekt-Liste als JSON-Array erstellen
+  String effectList = "[";
+  for (uint8_t i = 0; i < effectCount; i++) {
+    if (i > 0) effectList += ",";
+    effectList += "\"";
+    effectList += effects[i]->name;
+    effectList += "\"";
+  }
+  effectList += "]";
+  
   snprintf(json, sizeof(json),
     "{\"time\":\"%s\",\"effect\":\"%s\",\"tz\":\"%s\",\"hourFormat\":\"%s\",\"use24HourFormat\":%s,\"brightness\":%d,"
     "\"autoBrightness\":%s,\"minBrightness\":%d,\"maxBrightness\":%d,"
@@ -788,6 +801,7 @@ void handleStatus() {
     "\"mqttEnabled\":%s,\"mqttConnected\":%s,\"mqttServer\":\"%s\","
     "\"mqttPort\":%d,\"mqttTopic\":\"%s\",\"presenceDetected\":%s,"
     "\"displayEnabled\":%s,\"haDisplayControlled\":%s,\"presenceTimeout\":%lu,"
+    "\"availableEffects\":%s,"
     "\"otaEnabled\":%s,\"otaHostname\":\"%s\",\"ipAddress\":\"%s\"}",
     buf, currentEffect->name, tzString.c_str(), hourFormatStr, use24HourFormat ? "true" : "false", brightness,
     autoBrightnessEnabled ? "true" : "false", minBrightness, maxBrightness,
@@ -796,6 +810,7 @@ void handleStatus() {
     mqttServer.c_str(), mqttPort, mqttPresenceTopic.c_str(),
     presenceDetected ? "true" : "false", displayEnabled ? "true" : "false",
     haDisplayControlled ? "true" : "false", presenceTimeout,
+    effectList.c_str(),
     (WiFi.status() == WL_CONNECTED) ? "true" : "false", "IkeaClock", ipAddress.c_str());
   server.send(200, "application/json", json);
 }
@@ -1306,6 +1321,19 @@ void setup() {
     });
     
     ArduinoOTA.begin();
+    
+    // mDNS für Auto-Discovery in Home Assistant
+    if (MDNS.begin("IkeaClock")) {
+      Serial.println("mDNS responder started");
+      Serial.println("mDNS hostname: IkeaClock.local");
+      // HTTP Service für Auto-Discovery registrieren
+      MDNS.addService("http", "tcp", 80);
+      MDNS.addServiceTxt("http", "tcp", "device", "IkeaObegraensad");
+      MDNS.addServiceTxt("http", "tcp", "version", "1.0");
+    } else {
+      Serial.println("Error setting up MDNS responder!");
+    }
+    
     Serial.println("OTA ready");
     Serial.printf("OTA Hostname: %s\n", "IkeaClock");
     Serial.printf("OTA IP Address: %s\n", WiFi.localIP().toString().c_str());
@@ -1530,6 +1558,8 @@ void loop() {
   // ArduinoOTA Handler (muss regelmäßig aufgerufen werden)
   if (WiFi.status() == WL_CONNECTED) {
     ArduinoOTA.handle();
+    // mDNS Handler (muss regelmäßig aufgerufen werden)
+    MDNS.update();
   }
   yield();
 
