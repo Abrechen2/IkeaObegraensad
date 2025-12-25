@@ -2,6 +2,7 @@
 #include <ESP8266WiFi.h>
 #include <ESP8266WebServer.h>
 #include <ESP8266HTTPClient.h>
+#include <ESP8266mDNS.h>
 #include <PubSubClient.h>
 #include <EEPROM.h>
 #include <time.h>
@@ -16,7 +17,7 @@ extern "C" {
 
 // Debug-Logging aktivieren/deaktivieren
 // Für Production-Builds: Kommentiere die nächste Zeile aus
-#define DEBUG_LOGGING_ENABLED
+// #define DEBUG_LOGGING_ENABLED
 
 #include "Matrix.h"
 #include "Effect.h"
@@ -53,6 +54,7 @@ bool presenceDetected = false;
 unsigned long lastPresenceTime = 0;
 uint32_t presenceTimeout = 300000; // 5 Minuten in ms (Display bleibt 5 Min an nach letzter Erkennung)
 bool displayEnabled = true; // Display-Status (wird durch Präsenz gesteuert)
+bool haDisplayControlled = false; // Flag: Wird Display von HA gesteuert? (deaktiviert MQTT-Präsenz)
 
 // Rate-Limiting für Web-API
 struct RateLimit {
@@ -579,9 +581,22 @@ void mqttCallback(char* topic, byte* payload, unsigned int length) {
 
     if (presenceDetected) {
       lastPresenceTime = millis();
-      if (!displayEnabled) {
+      // Nur Display einschalten wenn HA nicht aktiv steuert
+      if (!haDisplayControlled && !displayEnabled) {
         displayEnabled = true;
         Serial.println("Display ENABLED by presence detection");
+        // Display einschalten
+        if (autoBrightnessEnabled) {
+          // Auto-Brightness wird die Helligkeit setzen
+        } else {
+          analogWrite(PIN_ENABLE, 1023 - brightness);
+        }
+      }
+    } else {
+      // Präsenz nicht mehr erkannt - nur Timeout setzen, Display wird von updatePresenceTimeout() ausgeschaltet
+      // Aber nur wenn HA nicht steuert
+      if (!haDisplayControlled) {
+        lastPresenceTime = millis(); // Reset Timer
       }
     }
   }
@@ -691,6 +706,11 @@ bool reconnectMQTT() {
 
 // Präsenz-Timeout prüfen und Display entsprechend steuern
 void updatePresenceTimeout() {
+  // Wenn HA das Display steuert, MQTT-Präsenz-Logik komplett deaktivieren
+  if (haDisplayControlled) {
+    return;
+  }
+
   if (!mqttEnabled) {
     return;
   }
@@ -760,15 +780,28 @@ void handleStatus() {
   const char* hourFormatStr = use24HourFormat ? "24h" : "12h";
   
   // JSON mit snprintf für bessere Performance (statt String-Konkatenation)
-  char json[768];
+  // Buffer erweitert für Effekt-Liste
+  char json[1024];
   String ipAddress = WiFi.localIP().toString();
+  
+  // Effekt-Liste als JSON-Array erstellen
+  String effectList = "[";
+  for (uint8_t i = 0; i < effectCount; i++) {
+    if (i > 0) effectList += ",";
+    effectList += "\"";
+    effectList += effects[i]->name;
+    effectList += "\"";
+  }
+  effectList += "]";
+  
   snprintf(json, sizeof(json),
     "{\"time\":\"%s\",\"effect\":\"%s\",\"tz\":\"%s\",\"hourFormat\":\"%s\",\"use24HourFormat\":%s,\"brightness\":%d,"
     "\"autoBrightness\":%s,\"minBrightness\":%d,\"maxBrightness\":%d,"
     "\"sensorMin\":%d,\"sensorMax\":%d,\"sensorValue\":%d,"
     "\"mqttEnabled\":%s,\"mqttConnected\":%s,\"mqttServer\":\"%s\","
     "\"mqttPort\":%d,\"mqttTopic\":\"%s\",\"presenceDetected\":%s,"
-    "\"displayEnabled\":%s,\"presenceTimeout\":%lu,"
+    "\"displayEnabled\":%s,\"haDisplayControlled\":%s,\"presenceTimeout\":%lu,"
+    "\"availableEffects\":%s,"
     "\"otaEnabled\":%s,\"otaHostname\":\"%s\",\"ipAddress\":\"%s\"}",
     buf, currentEffect->name, tzString.c_str(), hourFormatStr, use24HourFormat ? "true" : "false", brightness,
     autoBrightnessEnabled ? "true" : "false", minBrightness, maxBrightness,
@@ -776,7 +809,8 @@ void handleStatus() {
     mqttEnabled ? "true" : "false", mqttClient.connected() ? "true" : "false",
     mqttServer.c_str(), mqttPort, mqttPresenceTopic.c_str(),
     presenceDetected ? "true" : "false", displayEnabled ? "true" : "false",
-    presenceTimeout,
+    haDisplayControlled ? "true" : "false", presenceTimeout,
+    effectList.c_str(),
     (WiFi.status() == WL_CONNECTED) ? "true" : "false", "IkeaClock", ipAddress.c_str());
   server.send(200, "application/json", json);
 }
@@ -920,6 +954,12 @@ void handleSetMqtt() {
       Serial.println("MQTT disabled, display forced ON");
     }
 
+    // Wenn MQTT aktiviert wird, HA-Steuerung zurücksetzen (MQTT hat dann Vorrang)
+    if (!mqttEnabled && newMqttEnabled) {
+      haDisplayControlled = false;
+      Serial.println("MQTT enabled, HA display control reset");
+    }
+
     mqttEnabled = newMqttEnabled;
   }
   if (server.hasArg("server")) {
@@ -959,6 +999,44 @@ void handleSetMqtt() {
   server.send(200, "application/json", json);
 }
 
+void handleSetDisplay() {
+  if (!checkRateLimit()) {
+    server.send(429, "application/json", "{\"error\":\"Too many requests\"}");
+    return;
+  }
+  if (server.hasArg("enabled")) {
+    String val = server.arg("enabled");
+    val.toLowerCase();
+    val.trim();
+    bool newState = (val == "true" || val == "1");
+    
+    displayEnabled = newState;
+    haDisplayControlled = true; // Aktiviert HA-Steuerung (deaktiviert MQTT-Präsenz)
+    
+    if (displayEnabled) {
+      // Display einschalten
+      if (autoBrightnessEnabled) {
+        // Auto-Brightness wird die Helligkeit automatisch anpassen
+        Serial.println("Display ENABLED via HA (auto-brightness active)");
+      } else {
+        analogWrite(PIN_ENABLE, 1023 - brightness);
+        Serial.printf("Display ENABLED via HA (brightness: %d)\n", brightness);
+      }
+    } else {
+      // Display ausschalten (Helligkeit auf 0)
+      analogWrite(PIN_ENABLE, 1023);
+      Serial.println("Display DISABLED via HA");
+    }
+    
+    Serial.println("MQTT presence control DISABLED (HA active)");
+    
+    server.send(200, "application/json", 
+                String("{\"displayEnabled\":") + (displayEnabled ? "true" : "false") + 
+                ",\"haDisplayControlled\":true}");
+  } else {
+    server.send(400, "application/json", "{\"error\":\"Missing enabled parameter\"}");
+  }
+}
 
 bool applyEffect(uint8_t idx) {
   if (idx >= effectCount) {
@@ -1243,6 +1321,19 @@ void setup() {
     });
     
     ArduinoOTA.begin();
+    
+    // mDNS für Auto-Discovery in Home Assistant
+    if (MDNS.begin("IkeaClock")) {
+      Serial.println("mDNS responder started");
+      Serial.println("mDNS hostname: IkeaClock.local");
+      // HTTP Service für Auto-Discovery registrieren
+      MDNS.addService("http", "tcp", 80);
+      MDNS.addServiceTxt("http", "tcp", "device", "IkeaObegraensad");
+      MDNS.addServiceTxt("http", "tcp", "version", "1.0");
+    } else {
+      Serial.println("Error setting up MDNS responder!");
+    }
+    
     Serial.println("OTA ready");
     Serial.printf("OTA Hostname: %s\n", "IkeaClock");
     Serial.printf("OTA IP Address: %s\n", WiFi.localIP().toString().c_str());
@@ -1262,6 +1353,7 @@ void setup() {
   server.on("/api/setBrightness", handleSetBrightness);
   server.on("/api/setAutoBrightness", handleSetAutoBrightness);
   server.on("/api/setMqtt", handleSetMqtt);
+  server.on("/api/setDisplay", handleSetDisplay);  // HA-Integration Endpoint
   server.on("/effect/snake", []() { selectEffect(0); });
   server.on("/effect/clock", []() { selectEffect(1); });
   server.on("/effect/rain", []() { selectEffect(2); });
@@ -1466,6 +1558,8 @@ void loop() {
   // ArduinoOTA Handler (muss regelmäßig aufgerufen werden)
   if (WiFi.status() == WL_CONNECTED) {
     ArduinoOTA.handle();
+    // mDNS Handler (muss regelmäßig aufgerufen werden)
+    MDNS.update();
   }
   yield();
 
