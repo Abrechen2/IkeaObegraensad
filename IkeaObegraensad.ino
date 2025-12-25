@@ -19,6 +19,9 @@ extern "C" {
 // Für Production-Builds: Kommentiere die nächste Zeile aus
 // #define DEBUG_LOGGING_ENABLED
 
+// Firmware-Version
+#define FIRMWARE_VERSION "1.2"
+
 #include "Matrix.h"
 #include "Effect.h"
 #include "Snake.h"
@@ -780,8 +783,8 @@ void handleStatus() {
   const char* hourFormatStr = use24HourFormat ? "24h" : "12h";
   
   // JSON mit snprintf für bessere Performance (statt String-Konkatenation)
-  // Buffer erweitert für Effekt-Liste
-  char json[1024];
+  // Buffer erweitert für Effekt-Liste und HA-Kompatibilität
+  char json[1536];
   String ipAddress = WiFi.localIP().toString();
   
   // Effekt-Liste als JSON-Array erstellen
@@ -794,24 +797,30 @@ void handleStatus() {
   }
   effectList += "]";
   
+  // JSON-Response mit beiden Feldnamen (alte für Web-Interface, neue für HA-Integration)
   snprintf(json, sizeof(json),
-    "{\"time\":\"%s\",\"effect\":\"%s\",\"tz\":\"%s\",\"hourFormat\":\"%s\",\"use24HourFormat\":%s,\"brightness\":%d,"
-    "\"autoBrightness\":%s,\"minBrightness\":%d,\"maxBrightness\":%d,"
-    "\"sensorMin\":%d,\"sensorMax\":%d,\"sensorValue\":%d,"
+    "{\"time\":\"%s\",\"effect\":\"%s\",\"currentEffect\":\"%s\",\"tz\":\"%s\",\"timezone\":\"%s\",\"hourFormat\":\"%s\",\"use24HourFormat\":%s,\"brightness\":%d,"
+    "\"autoBrightness\":%s,\"autoBrightnessEnabled\":%s,\"minBrightness\":%d,\"maxBrightness\":%d,"
+    "\"autoBrightnessMin\":%d,\"autoBrightnessMax\":%d,\"sensorMin\":%d,\"sensorMax\":%d,"
+    "\"autoBrightnessSensorMin\":%d,\"autoBrightnessSensorMax\":%d,\"sensorValue\":%d,"
     "\"mqttEnabled\":%s,\"mqttConnected\":%s,\"mqttServer\":\"%s\","
-    "\"mqttPort\":%d,\"mqttTopic\":\"%s\",\"presenceDetected\":%s,"
+    "\"mqttPort\":%d,\"mqttTopic\":\"%s\",\"presenceDetected\":%s,\"presence\":%s,"
     "\"displayEnabled\":%s,\"haDisplayControlled\":%s,\"presenceTimeout\":%lu,"
     "\"availableEffects\":%s,"
-    "\"otaEnabled\":%s,\"otaHostname\":\"%s\",\"ipAddress\":\"%s\"}",
-    buf, currentEffect->name, tzString.c_str(), hourFormatStr, use24HourFormat ? "true" : "false", brightness,
-    autoBrightnessEnabled ? "true" : "false", minBrightness, maxBrightness,
+    "\"otaEnabled\":%s,\"otaHostname\":\"%s\",\"ipAddress\":\"%s\","
+    "\"firmwareVersion\":\"%s\",\"version\":\"%s\"}",
+    buf, currentEffect->name, currentEffect->name, tzString.c_str(), tzString.c_str(), hourFormatStr, use24HourFormat ? "true" : "false", brightness,
+    autoBrightnessEnabled ? "true" : "false", autoBrightnessEnabled ? "true" : "false", minBrightness, maxBrightness,
+    minBrightness, maxBrightness, sensorMin, sensorMax,
     sensorMin, sensorMax, sensorValue,
     mqttEnabled ? "true" : "false", mqttClient.connected() ? "true" : "false",
     mqttServer.c_str(), mqttPort, mqttPresenceTopic.c_str(),
-    presenceDetected ? "true" : "false", displayEnabled ? "true" : "false",
+    presenceDetected ? "true" : "false", presenceDetected ? "true" : "false",
+    displayEnabled ? "true" : "false",
     haDisplayControlled ? "true" : "false", presenceTimeout,
     effectList.c_str(),
-    (WiFi.status() == WL_CONNECTED) ? "true" : "false", "IkeaClock", ipAddress.c_str());
+    (WiFi.status() == WL_CONNECTED) ? "true" : "false", "IkeaClock", ipAddress.c_str(),
+    FIRMWARE_VERSION, FIRMWARE_VERSION);
   server.send(200, "application/json", json);
 }
 
@@ -1329,7 +1338,7 @@ void setup() {
       // HTTP Service für Auto-Discovery registrieren
       MDNS.addService("http", "tcp", 80);
       MDNS.addServiceTxt("http", "tcp", "device", "IkeaObegraensad");
-      MDNS.addServiceTxt("http", "tcp", "version", "1.0");
+      MDNS.addServiceTxt("http", "tcp", "version", FIRMWARE_VERSION);
     } else {
       Serial.println("Error setting up MDNS responder!");
     }
