@@ -882,6 +882,34 @@ const char WEB_INTERFACE_HTML[] PROGMEM = R"rawl(
         </div>
         <div class="status-value" id="ipAddress" style="font-size: 0.875rem;">-</div>
       </div>
+      <div class="status-item">
+        <div class="status-label">
+          <span>🔄</span>
+          <span>Neustarts</span>
+        </div>
+        <div class="status-value" id="restartCount">-</div>
+      </div>
+      <div class="status-item">
+        <div class="status-label">
+          <span>⚠️</span>
+          <span>Letzter Reset</span>
+        </div>
+        <div class="status-value" id="lastResetReason" style="font-size: 0.75rem; word-break: break-word;">-</div>
+      </div>
+      <div class="status-item">
+        <div class="status-label">
+          <span>⏱️</span>
+          <span>Uptime vor Restart</span>
+        </div>
+        <div class="status-value" id="lastUptimeBeforeRestart">-</div>
+      </div>
+      <div class="status-item">
+        <div class="status-label">
+          <span>💾</span>
+          <span>Heap vor Restart</span>
+        </div>
+        <div class="status-value" id="lastHeapBeforeRestart">-</div>
+      </div>
     </section>
 
     <section class="card" role="region" aria-label="Effekt Auswahl">
@@ -1075,6 +1103,34 @@ const char WEB_INTERFACE_HTML[] PROGMEM = R"rawl(
       </div>
     </div>
 
+    <div class="accordion" role="region" aria-label="Log-Server">
+      <div class="accordion-header" role="button" tabindex="0" aria-expanded="false" aria-controls="logServerContent">
+        <h3>Log-Server</h3>
+        <span class="accordion-icon" aria-hidden="true">▼</span>
+      </div>
+      <div class="accordion-content" id="logServerContent">
+        <p class="caption" style="margin-bottom: var(--spacing-2);">
+          Konfigurieren Sie einen Server zum automatischen Senden von Debug-Logs. Logs werden als JSON-Array gesendet.
+        </p>
+        <div class="grid" style="margin-top: var(--spacing-2);">
+          <div>
+            <label for="logServerUrl">Log-Server URL</label>
+            <input id="logServerUrl" type="text" placeholder="http://192.168.1.100:3000/logs" aria-label="Log-Server URL" pattern="^(https?://.*|)$">
+            <span class="input-error">Bitte eine gültige URL eingeben (http:// oder https://) oder leer lassen zum Deaktivieren</span>
+          </div>
+          <div>
+            <label for="logServerInterval">Upload-Intervall (ms)</label>
+            <input id="logServerInterval" type="number" min="10000" max="3600000" step="1000" value="60000" aria-label="Upload-Intervall in Millisekunden" required>
+            <span class="input-error">Bitte einen Wert zwischen 10000 (10s) und 3600000 (1h) eingeben</span>
+          </div>
+        </div>
+        <button id="saveLogServer" aria-label="Log-Server Einstellungen speichern">Log-Server Einstellungen speichern</button>
+        <p class="caption" style="margin-top: var(--spacing-2);">
+          <strong>Hinweis:</strong> Logs werden automatisch im konfigurierten Intervall gesendet. Leere URL deaktiviert den Log-Server.
+        </p>
+      </div>
+    </div>
+
     <div class="accordion" role="region" aria-label="Backup und Restore">
       <div class="accordion-header" role="button" tabindex="0" aria-expanded="false" aria-controls="backupContent">
         <h3>Backup & Restore</h3>
@@ -1214,6 +1270,8 @@ const char WEB_INTERFACE_HTML[] PROGMEM = R"rawl(
     const displayStatusEl = document.getElementById('displayStatus');
     const otaStatusEl = document.getElementById('otaStatus');
     const ipAddressEl = document.getElementById('ipAddress');
+    const restartCountEl = document.getElementById('restartCount');
+    const lastResetReasonEl = document.getElementById('lastResetReason');
 
     let brightnessDebounce;
     const editingFields = new Set();
@@ -1381,6 +1439,36 @@ const char WEB_INTERFACE_HTML[] PROGMEM = R"rawl(
         if (data.ipAddress !== undefined) {
           ipAddressEl.textContent = data.ipAddress;
           ipAddressEl.title = 'IP-Adresse für OTA-Updates: ' + data.ipAddress;
+        }
+
+        if (data.restartCount !== undefined) {
+          restartCountEl.textContent = data.restartCount;
+          restartCountEl.title = 'Anzahl der Neustarts seit letztem Reset des Counters';
+        }
+
+        if (data.lastResetReason !== undefined) {
+          lastResetReasonEl.textContent = data.lastResetReason || '-';
+          lastResetReasonEl.title = 'Grund des letzten Neustarts';
+        }
+        if (data.lastUptimeBeforeRestart !== undefined) {
+          const uptimeEl = document.getElementById('lastUptimeBeforeRestart');
+          if (uptimeEl) {
+            if (data.lastUptimeBeforeRestartHours !== undefined && data.lastUptimeBeforeRestartMinutes !== undefined) {
+              uptimeEl.textContent = `${data.lastUptimeBeforeRestartHours}h ${data.lastUptimeBeforeRestartMinutes}m`;
+            } else {
+              uptimeEl.textContent = '-';
+            }
+          }
+        }
+        if (data.lastHeapBeforeRestart !== undefined) {
+          const heapEl = document.getElementById('lastHeapBeforeRestart');
+          if (heapEl) {
+            if (data.lastHeapBeforeRestartKB !== undefined) {
+              heapEl.textContent = `${data.lastHeapBeforeRestartKB} KB`;
+            } else {
+              heapEl.textContent = '-';
+            }
+          }
         }
       } catch (error) {
         showToast('Status konnte nicht geladen werden. ' + error.message, 'error');
@@ -1616,6 +1704,50 @@ const char WEB_INTERFACE_HTML[] PROGMEM = R"rawl(
 
     saveMqttButton.addEventListener('click', () => {
       saveMqtt();
+    });
+
+    const saveLogServerButton = document.getElementById('saveLogServer');
+    async function saveLogServer() {
+      const url = document.getElementById('logServerUrl').value.trim();
+      const interval = parseInt(document.getElementById('logServerInterval').value);
+
+      if (url.length > 0 && !url.startsWith('http://') && !url.startsWith('https://')) {
+        showToast('URL muss mit http:// oder https:// beginnen', 'error');
+        return;
+      }
+
+      if (interval < 10000 || interval > 3600000) {
+        showToast('Intervall muss zwischen 10000 (10s) und 3600000 (1h) liegen', 'error');
+        return;
+      }
+
+      try {
+        setButtonLoading(saveLogServerButton, true);
+        const params = new URLSearchParams();
+        if (url.length > 0) params.append('url', url);
+        params.append('interval', interval);
+
+        const response = await fetch('/api/setLogServer?' + params.toString(), {
+          method: 'GET',
+          cache: 'no-store'
+        });
+
+        if (!response.ok) {
+          const error = await response.json();
+          throw new Error(error.error || 'Fehler beim Speichern');
+        }
+
+        const result = await response.json();
+        showToast('Log-Server Einstellungen gespeichert', 'success');
+      } catch (error) {
+        showToast('Fehler: ' + error.message, 'error');
+      } finally {
+        setButtonLoading(saveLogServerButton, false);
+      }
+    }
+
+    saveLogServerButton.addEventListener('click', () => {
+      saveLogServer();
     });
 
     const backupButton = document.getElementById('backupButton');

@@ -7,7 +7,7 @@
 #include <time.h>
 
 extern bool use24HourFormat;
-int formatHourForDisplay(int hour);
+uint8_t formatHourForDisplay(uint8_t hour);
 
 namespace SandClockEffect {
   struct Grain {

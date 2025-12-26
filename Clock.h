@@ -7,7 +7,7 @@
 #include <time.h>
 
 extern bool use24HourFormat;
-int formatHourForDisplay(int hour);
+uint8_t formatHourForDisplay(uint8_t hour);
 
 namespace ClockEffect {
   void drawDigit(uint8_t *frame, int digit, uint8_t xOffset, uint8_t yOffset) {
