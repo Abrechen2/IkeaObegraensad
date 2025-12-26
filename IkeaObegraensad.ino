@@ -20,7 +20,7 @@ extern "C" {
 // #define DEBUG_LOGGING_ENABLED
 
 // Firmware-Version
-#define FIRMWARE_VERSION "1.2"
+#define FIRMWARE_VERSION "1.3"
 
 #include "Matrix.h"
 #include "Effect.h"
@@ -797,6 +797,10 @@ void handleStatus() {
   }
   effectList += "]";
   
+  // Dynamischer Hostname basierend auf Chip-ID (eindeutig pro Gerät)
+  char hostname[32];
+  snprintf(hostname, sizeof(hostname), "IkeaClock-%x", ESP.getChipId());
+  
   // JSON-Response mit beiden Feldnamen (alte für Web-Interface, neue für HA-Integration)
   snprintf(json, sizeof(json),
     "{\"time\":\"%s\",\"effect\":\"%s\",\"currentEffect\":\"%s\",\"tz\":\"%s\",\"timezone\":\"%s\",\"hourFormat\":\"%s\",\"use24HourFormat\":%s,\"brightness\":%d,"
@@ -819,7 +823,7 @@ void handleStatus() {
     displayEnabled ? "true" : "false",
     haDisplayControlled ? "true" : "false", presenceTimeout,
     effectList.c_str(),
-    (WiFi.status() == WL_CONNECTED) ? "true" : "false", "IkeaClock", ipAddress.c_str(),
+    (WiFi.status() == WL_CONNECTED) ? "true" : "false", hostname, ipAddress.c_str(),
     FIRMWARE_VERSION, FIRMWARE_VERSION);
   server.send(200, "application/json", json);
 }
@@ -1290,8 +1294,12 @@ void setup() {
     setupNTP();
     ESP.wdtFeed(); // Watchdog nach NTP-Setup füttern
     
+    // Dynamischer Hostname basierend auf Chip-ID (eindeutig pro Gerät)
+    char hostname[32];
+    snprintf(hostname, sizeof(hostname), "IkeaClock-%x", ESP.getChipId());
+    
     // ArduinoOTA Setup
-    ArduinoOTA.setHostname("IkeaClock");
+    ArduinoOTA.setHostname(hostname);
     ArduinoOTA.setPassword("admin"); // Passwort für OTA-Updates (sollte geändert werden!)
     
     ArduinoOTA.onStart([]() {
@@ -1332,9 +1340,9 @@ void setup() {
     ArduinoOTA.begin();
     
     // mDNS für Auto-Discovery in Home Assistant
-    if (MDNS.begin("IkeaClock")) {
+    if (MDNS.begin(hostname)) {
       Serial.println("mDNS responder started");
-      Serial.println("mDNS hostname: IkeaClock.local");
+      Serial.printf("mDNS hostname: %s.local\n", hostname);
       // HTTP Service für Auto-Discovery registrieren
       MDNS.addService("http", "tcp", 80);
       MDNS.addServiceTxt("http", "tcp", "device", "IkeaObegraensad");
@@ -1344,13 +1352,13 @@ void setup() {
     }
     
     Serial.println("OTA ready");
-    Serial.printf("OTA Hostname: %s\n", "IkeaClock");
+    Serial.printf("OTA Hostname: %s\n", hostname);
     Serial.printf("OTA IP Address: %s\n", WiFi.localIP().toString().c_str());
     Serial.printf("OTA Port: 3232\n");
     Serial.println("========================================");
     Serial.println("OTA Update Instructions:");
     Serial.println("1. In Arduino IDE: Tools -> Port -> Network Ports");
-    Serial.printf("2. Select: %s or %s.local\n", WiFi.localIP().toString().c_str(), "IkeaClock");
+    Serial.printf("2. Select: %s or %s.local\n", WiFi.localIP().toString().c_str(), hostname);
     Serial.println("3. Click Upload (password: admin)");
     Serial.println("========================================");
   }
