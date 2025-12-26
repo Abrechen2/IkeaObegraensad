@@ -2,6 +2,9 @@
 const char *ssid = "YOUR_SSID";
 const char *password = "YOUR_PASSWORD";
 
+// OTA Update Passwort
+const char *otaPassword = "admin"; // Sollte geändert werden!
+
 // Optional: Log-Server Konfiguration
 // Leer lassen um Log-Upload zu deaktivieren
 // Beispiel: #define LOG_SERVER_URL "http://192.168.1.100:3000/logs"

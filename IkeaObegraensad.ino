@@ -1300,7 +1300,7 @@ void setup() {
     
     // ArduinoOTA Setup
     ArduinoOTA.setHostname(hostname);
-    ArduinoOTA.setPassword("admin"); // Passwort für OTA-Updates (sollte geändert werden!)
+    ArduinoOTA.setPassword(otaPassword); // Passwort für OTA-Updates aus secrets.h
     
     ArduinoOTA.onStart([]() {
       String type;
