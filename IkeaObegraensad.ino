@@ -20,7 +20,7 @@ extern "C" {
 #define DEBUG_LOGGING_ENABLED
 
 // Firmware-Version
-#define FIRMWARE_VERSION "1.4.0"
+#define FIRMWARE_VERSION "1.4.1"
 
 #include "Matrix.h"
 #include "Effect.h"
@@ -1701,6 +1701,30 @@ void setup() {
     Serial.printf("2. Select: %s or %s.local\n", WiFi.localIP().toString().c_str(), hostname);
     Serial.println("3. Click Upload (password: admin)");
     Serial.println("========================================");
+    
+    // WICHTIG: Restart-Logs sofort nach WiFi-Verbindung senden
+    // Dies stellt sicher, dass Restart-Logs nicht verloren gehen, wenn das Gerät schnell neu startet
+    if (strlen(logServerUrl) > 0 && SPIFFS.exists("/debug.log")) {
+      File logFile = SPIFFS.open("/debug.log", "r");
+      if (logFile && logFile.size() > 0) {
+        // Prüfe ob Restart-Logs enthalten sind (schnelle Prüfung der ersten Zeile)
+        String firstLine = logFile.readStringUntil('\n');
+        logFile.close();
+        
+        if (firstLine.indexOf("restart_") >= 0) {
+          Serial.println("[SETUP] Restart-Logs gefunden - sende sofort nach WiFi-Verbindung...");
+          ESP.wdtFeed(); // Watchdog füttern vor blockierender Operation
+          bool success = sendLogsToServer();
+          if (success) {
+            Serial.println("[SETUP] Restart-Logs erfolgreich gesendet");
+            lastLogUpload = millis(); // Reset Intervall
+          } else {
+            Serial.println("[SETUP] Fehler beim Senden der Restart-Logs - werden später erneut versucht");
+          }
+          ESP.wdtFeed(); // Watchdog nach blockierender Operation
+        }
+      }
+    }
   }
 
   server.on("/", handleRoot);
@@ -2017,6 +2041,53 @@ void loop() {
 
   // Automatisches Senden von Logs an Server (falls konfiguriert)
   if (WiFi.status() == WL_CONNECTED && strlen(logServerUrl) > 0) {
+    // Sofort senden wenn WiFi gerade verbunden wurde und Restart-Logs vorhanden sind
+    static bool wifiJustConnected = false;
+    static unsigned long lastWifiStatusCheck = 0;
+    static wl_status_t lastWifiStatus = WL_DISCONNECTED;
+    
+    wl_status_t currentWifiStatus = WiFi.status();
+    unsigned long now = millis();
+    
+    // Prüfe ob WiFi gerade verbunden wurde (Status-Wechsel von nicht-verbunden zu verbunden)
+    if (currentWifiStatus == WL_CONNECTED && lastWifiStatus != WL_CONNECTED) {
+      wifiJustConnected = true;
+      Serial.println("[LOOP] WiFi gerade verbunden - prüfe auf Restart-Logs...");
+    }
+    lastWifiStatus = currentWifiStatus;
+    lastWifiStatusCheck = now;
+    
+    // Wenn WiFi gerade verbunden wurde, sofort Restart-Logs senden
+    if (wifiJustConnected && SPIFFS.exists("/debug.log")) {
+      File logFile = SPIFFS.open("/debug.log", "r");
+      if (logFile && logFile.size() > 0) {
+        // Prüfe ob Restart-Logs enthalten sind
+        String firstLine = logFile.readStringUntil('\n');
+        logFile.close();
+        
+        if (firstLine.indexOf("restart_") >= 0) {
+          Serial.println("[LOOP] Restart-Logs gefunden - sende sofort nach WiFi-Verbindung...");
+          strncpy(lastOperation, "sendLogsToServer", sizeof(lastOperation) - 1);
+          lastOperation[sizeof(lastOperation) - 1] = '\0';
+          debugLogJson("loop", "Log upload start (immediate after WiFi)", "C", "{\"url\":\"%s\",\"freeHeap\":%d}", logServerUrl, ESP.getFreeHeap());
+          bool success = sendLogsToServer();
+          if (success) {
+            Serial.println("[LOOP] Restart-Logs erfolgreich gesendet");
+            lastLogUpload = millis(); // Reset Intervall
+          } else {
+            Serial.println("[LOOP] Fehler beim Senden der Restart-Logs - werden später erneut versucht");
+          }
+          debugLogJson("loop", success ? "Log upload success (immediate)" : "Log upload failed (immediate)", "C", "{}");
+          wifiJustConnected = false; // Reset Flag
+        } else {
+          wifiJustConnected = false; // Keine Restart-Logs, Flag zurücksetzen
+        }
+      } else {
+        wifiJustConnected = false; // Keine Log-Datei, Flag zurücksetzen
+      }
+    }
+    
+    // Normales Intervall-basiertes Senden
     if (timeDiff(millis(), lastLogUpload) >= logServerInterval) {
       strncpy(lastOperation, "sendLogsToServer", sizeof(lastOperation) - 1);
       lastOperation[sizeof(lastOperation) - 1] = '\0';
