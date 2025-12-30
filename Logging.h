@@ -3,15 +3,8 @@
 
 #include <Arduino.h>
 #include <FS.h>
-#include <ESP8266HTTPClient.h>
 #include <ESP8266WiFi.h>
 #include <string.h>
-
-// Externe Variablen (werden in IkeaObegraensad.ino definiert)
-extern char logServerUrl[];
-extern unsigned long logServerInterval;
-extern unsigned long lastLogUpload;
-extern WiFiClient espClient;
 
 // Externe Variablen für Restart-Diagnose (werden in IkeaObegraensad.ino definiert)
 extern unsigned long lastUptimeBeforeRestart;
@@ -201,128 +194,6 @@ void debugLogJson(const char* location, const char* message, const char* hypothe
 inline void debugLog(const char* location, const char* message, const char* hypothesisId, const char* dataJson) {}
 inline void debugLogJson(const char* location, const char* message, const char* hypothesisId, const char* format, ...) {}
 #endif // DEBUG_LOGGING_ENABLED
-
-// Funktion zum Senden von Logs an einen Server
-// Sendet alle Logs aus /debug.log als JSON-Array per HTTP POST
-// Löscht die Datei nach erfolgreichem Senden (HTTP 200-299)
-// Konfiguration: Definiere LOG_SERVER_URL in secrets.h oder über Web-UI
-// Deaktiviert wenn LOG_SERVER_URL leer oder nicht definiert ist
-bool sendLogsToServer() {
-  // Prüfe ob WiFi verbunden ist
-  if (WiFi.status() != WL_CONNECTED) {
-    Serial.println("[LOG_SERVER] WiFi nicht verbunden");
-    return false;
-  }
-  
-  // Prüfe ob URL gesetzt und gültig ist (muss mit http:// oder https:// beginnen)
-  if (strlen(logServerUrl) == 0 || 
-      (strncmp(logServerUrl, "http://", 7) != 0 && strncmp(logServerUrl, "https://", 8) != 0)) {
-    Serial.println("[LOG_SERVER] URL nicht gesetzt oder ungültig");
-    return false;
-  }
-  
-  Serial.printf("[LOG_SERVER] Versuche Logs zu senden an: %s\n", logServerUrl);
-  
-  // Prüfe ob Log-Datei existiert
-  if (!SPIFFS.exists("/debug.log")) {
-    Serial.println("[LOG_SERVER] Keine Log-Datei vorhanden");
-    return true; // Keine Logs zum Senden ist kein Fehler
-  }
-  
-  File logFile = SPIFFS.open("/debug.log", "r");
-  if (!logFile) {
-    Serial.println("[LOG_SERVER] Fehler beim Öffnen der Log-Datei");
-    return false;
-  }
-  
-  // Prüfe Dateigröße (max 32KB zum Senden auf einmal)
-  size_t fileSize = logFile.size();
-  if (fileSize == 0) {
-    logFile.close();
-    Serial.println("[LOG_SERVER] Log-Datei ist leer");
-    return true; // Leere Datei ist kein Fehler
-  }
-  
-  if (fileSize > 32768) {
-    Serial.printf("[LOG_SERVER] Log-Datei zu groß (%d bytes), überspringe Sendung\n", fileSize);
-    logFile.close();
-    return false;
-  }
-  
-  Serial.printf("[LOG_SERVER] Lese Log-Datei (%d bytes)...\n", fileSize);
-  
-  // Lese gesamte Datei und konvertiere NDJSON zu JSON-Array
-  // Verwende reserve() um Speicher-Allokationen zu reduzieren
-  String payload;
-  payload.reserve(fileSize + 100); // Reserve Speicher für Array-Klammern und Kommas
-  payload = "[";
-  bool firstLine = true;
-  uint16_t lineCount = 0;
-  
-  while (logFile.available()) {
-    String line = logFile.readStringUntil('\n');
-    line.trim();
-    
-    if (line.length() > 0) {
-      // Prüfe ob die Zeile gültiges JSON ist (sollte mit { beginnen)
-      if (line.charAt(0) == '{') {
-        if (!firstLine) {
-          payload += ",";
-        }
-        payload += line;
-        firstLine = false;
-        lineCount++;
-      } else {
-        Serial.printf("[LOG_SERVER] WARNUNG: Ungültige Zeile übersprungen (beginnt nicht mit '{'): %s\n", line.substring(0, min(50, (int)line.length())).c_str());
-      }
-      yield(); // Wichtig: yield für Watchdog
-    }
-  }
-  payload += "]";
-  logFile.close();
-  
-  Serial.printf("[LOG_SERVER] JSON-Array erstellt (%d bytes, %d Zeilen), sende an Server...\n", payload.length(), lineCount);
-  
-  // Debug: Zeige ersten Teil des Payloads
-  if (payload.length() > 0) {
-    String preview = payload.substring(0, min(100, (int)payload.length()));
-    Serial.printf("[LOG_SERVER] Payload-Start: %s\n", preview.c_str());
-  }
-  
-  // Erstelle HTTP-Client und sende
-  HTTPClient http;
-  http.begin(espClient, logServerUrl);
-  http.addHeader("Content-Type", "application/json"); // JSON-Format statt NDJSON
-  http.setTimeout(15000); // 15 Sekunden Timeout (für Connect und Read)
-  
-  ESP.wdtFeed(); // Watchdog vor blockierender Operation
-  int httpCode = http.POST(payload);
-  ESP.wdtFeed(); // Watchdog nach blockierender Operation
-  
-  // Lese Antwort vom Server (für Debugging)
-  String response = http.getString();
-  
-  http.end();
-  
-  // Prüfe Antwort-Code
-  if (httpCode >= 200 && httpCode < 300) {
-    // Erfolgreich gesendet - lösche Log-Datei
-    SPIFFS.remove("/debug.log");
-    Serial.printf("[LOG_SERVER] Logs erfolgreich gesendet (%d bytes, HTTP %d)\n", fileSize, httpCode);
-    return true;
-  } else {
-    Serial.printf("[LOG_SERVER] Fehler beim Senden: HTTP %d\n", httpCode);
-    if (response.length() > 0) {
-      Serial.printf("[LOG_SERVER] Server-Antwort: %s\n", response.c_str());
-    }
-    // Zeige ersten Teil des Payloads für Debugging (max 200 Zeichen)
-    if (payload.length() > 0) {
-      String payloadPreview = payload.substring(0, min(200, (int)payload.length()));
-      Serial.printf("[LOG_SERVER] Payload-Vorschau (erste 200 Zeichen): %s\n", payloadPreview.c_str());
-    }
-    return false;
-  }
-}
 
 #endif // LOGGING_H
 

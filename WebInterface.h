@@ -887,7 +887,10 @@ const char WEB_INTERFACE_HTML[] PROGMEM = R"rawl(
           <span>🔄</span>
           <span>Neustarts</span>
         </div>
-        <div class="status-value" id="restartCount">-</div>
+        <div style="display: flex; align-items: center; gap: var(--spacing-1);">
+          <div class="status-value" id="restartCount">-</div>
+          <button id="resetRestartCount" style="width: auto; padding: 0.375rem 0.75rem; font-size: 0.75rem; min-height: auto;" aria-label="Restart-Counter zurücksetzen">Reset</button>
+        </div>
       </div>
       <div class="status-item">
         <div class="status-label">
@@ -1099,34 +1102,6 @@ const char WEB_INTERFACE_HTML[] PROGMEM = R"rawl(
         <p class="caption" style="margin: var(--spacing-2) 0 0 0; line-height: 1.5;">
           <strong>Hinweis:</strong> Nach dem Speichern wird die MQTT-Verbindung neu aufgebaut. Das Display schaltet sich automatisch aus, wenn keine Präsenz erkannt wird.<br>
           <strong>Aqara FP2:</strong> Topic ist <code>zigbee2mqtt/[dein_sensor_name]</code> (ohne /presence oder /occupancy). Der Code erkennt JSON automatisch.
-        </p>
-      </div>
-    </div>
-
-    <div class="accordion" role="region" aria-label="Log-Server">
-      <div class="accordion-header" role="button" tabindex="0" aria-expanded="false" aria-controls="logServerContent">
-        <h3>Log-Server</h3>
-        <span class="accordion-icon" aria-hidden="true">▼</span>
-      </div>
-      <div class="accordion-content" id="logServerContent">
-        <p class="caption" style="margin-bottom: var(--spacing-2);">
-          Konfigurieren Sie einen Server zum automatischen Senden von Debug-Logs. Logs werden als JSON-Array gesendet.
-        </p>
-        <div class="grid" style="margin-top: var(--spacing-2);">
-          <div>
-            <label for="logServerUrl">Log-Server URL</label>
-            <input id="logServerUrl" type="text" placeholder="http://192.168.1.100:3000/logs" aria-label="Log-Server URL" pattern="^(https?://.*|)$">
-            <span class="input-error">Bitte eine gültige URL eingeben (http:// oder https://) oder leer lassen zum Deaktivieren</span>
-          </div>
-          <div>
-            <label for="logServerInterval">Upload-Intervall (ms)</label>
-            <input id="logServerInterval" type="number" min="10000" max="3600000" step="1000" value="60000" aria-label="Upload-Intervall in Millisekunden" required>
-            <span class="input-error">Bitte einen Wert zwischen 10000 (10s) und 3600000 (1h) eingeben</span>
-          </div>
-        </div>
-        <button id="saveLogServer" aria-label="Log-Server Einstellungen speichern">Log-Server Einstellungen speichern</button>
-        <p class="caption" style="margin-top: var(--spacing-2);">
-          <strong>Hinweis:</strong> Logs werden automatisch im konfigurierten Intervall gesendet. Leere URL deaktiviert den Log-Server.
         </p>
       </div>
     </div>
@@ -1706,50 +1681,6 @@ const char WEB_INTERFACE_HTML[] PROGMEM = R"rawl(
       saveMqtt();
     });
 
-    const saveLogServerButton = document.getElementById('saveLogServer');
-    async function saveLogServer() {
-      const url = document.getElementById('logServerUrl').value.trim();
-      const interval = parseInt(document.getElementById('logServerInterval').value);
-
-      if (url.length > 0 && !url.startsWith('http://') && !url.startsWith('https://')) {
-        showToast('URL muss mit http:// oder https:// beginnen', 'error');
-        return;
-      }
-
-      if (interval < 10000 || interval > 3600000) {
-        showToast('Intervall muss zwischen 10000 (10s) und 3600000 (1h) liegen', 'error');
-        return;
-      }
-
-      try {
-        setButtonLoading(saveLogServerButton, true);
-        const params = new URLSearchParams();
-        if (url.length > 0) params.append('url', url);
-        params.append('interval', interval);
-
-        const response = await fetch('/api/setLogServer?' + params.toString(), {
-          method: 'GET',
-          cache: 'no-store'
-        });
-
-        if (!response.ok) {
-          const error = await response.json();
-          throw new Error(error.error || 'Fehler beim Speichern');
-        }
-
-        const result = await response.json();
-        showToast('Log-Server Einstellungen gespeichert', 'success');
-      } catch (error) {
-        showToast('Fehler: ' + error.message, 'error');
-      } finally {
-        setButtonLoading(saveLogServerButton, false);
-      }
-    }
-
-    saveLogServerButton.addEventListener('click', () => {
-      saveLogServer();
-    });
-
     const backupButton = document.getElementById('backupButton');
     const restoreFile = document.getElementById('restoreFile');
 
@@ -1807,6 +1738,38 @@ const char WEB_INTERFACE_HTML[] PROGMEM = R"rawl(
         showToast('Restore fehlgeschlagen: ' + error.message, 'error');
         event.target.value = '';
       }
+    });
+
+    const resetRestartCountButton = document.getElementById('resetRestartCount');
+    async function resetRestartCount() {
+      if (!confirm('Möchten Sie den Restart-Counter wirklich zurücksetzen?')) {
+        return;
+      }
+      
+      try {
+        setButtonLoading(resetRestartCountButton, true);
+        const response = await fetch('/api/resetRestartCount', {
+          method: 'GET',
+          cache: 'no-store'
+        });
+        
+        if (!response.ok) {
+          const error = await response.json();
+          throw new Error(error.error || 'Fehler beim Zurücksetzen');
+        }
+        
+        const result = await response.json();
+        restartCountEl.textContent = result.restartCount || 0;
+        showToast('Restart-Counter zurückgesetzt', 'success');
+      } catch (error) {
+        showToast('Fehler: ' + error.message, 'error');
+      } finally {
+        setButtonLoading(resetRestartCountButton, false);
+      }
+    }
+    
+    resetRestartCountButton.addEventListener('click', () => {
+      resetRestartCount();
     });
 
     loadSettings();

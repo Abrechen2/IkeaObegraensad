@@ -1,7 +1,6 @@
 #include <Arduino.h>
 #include <ESP8266WiFi.h>
 #include <ESP8266WebServer.h>
-#include <ESP8266HTTPClient.h>
 #include <ESP8266mDNS.h>
 #include <PubSubClient.h>
 #include <EEPROM.h>
@@ -17,10 +16,10 @@ extern "C" {
 
 // Debug-Logging aktivieren/deaktivieren
 // Für Production-Builds: Kommentiere die nächste Zeile aus
-#define DEBUG_LOGGING_ENABLED
+//#define DEBUG_LOGGING_ENABLED
 
 // Firmware-Version
-#define FIRMWARE_VERSION "1.4.1"
+#define FIRMWARE_VERSION "1.5.0"
 
 #include "Matrix.h"
 #include "Effect.h"
@@ -53,7 +52,6 @@ const size_t INPUT_MQTT_PASSWORD_MAX = 64;
 const size_t INPUT_MQTT_TOPIC_MAX = 128;
 const size_t INPUT_TZ_MAX = 128;
 const size_t INPUT_NTP_SERVER_MAX = 128;
-const size_t INPUT_LOG_URL_MAX = 256;
 const size_t INPUT_RESET_REASON_MAX = 64;
 const size_t INPUT_OPERATION_MAX = 64;
 
@@ -97,17 +95,6 @@ unsigned long mqttReconnectBackoff = 1000; // Start mit 1 Sekunde
 const unsigned long MQTT_MAX_BACKOFF = 60000; // Maximal 60 Sekunden
 const unsigned long MQTT_BACKOFF_MULTIPLIER = 2; // Verdoppeln bei jedem Fehlschlag
 
-// Log-Server Konfiguration (kann in secrets.h überschrieben werden)
-#ifndef LOG_SERVER_URL
-#define LOG_SERVER_URL "http://192.168.178.36:402/logs"  // Leer = deaktiviert, z.B. "http://192.168.1.100:3000/logs"
-#endif
-#ifndef LOG_SERVER_INTERVAL
-#define LOG_SERVER_INTERVAL 60000  // Intervall in ms für automatisches Senden (Standard: 60 Sekunden)
-#endif
-
-char logServerUrl[INPUT_LOG_URL_MAX] = LOG_SERVER_URL;
-unsigned long logServerInterval = LOG_SERVER_INTERVAL;
-unsigned long lastLogUpload = 0;
 const unsigned long MQTT_CONNECT_TIMEOUT = 5000; // 5 Sekunden Timeout für Connect-Versuch
 
 // Brightness Konstanten
@@ -161,7 +148,6 @@ const size_t EEPROM_MQTT_USER_LEN = 32;
 const size_t EEPROM_MQTT_PASSWORD_LEN = 32;
 const size_t EEPROM_MQTT_TOPIC_LEN = 64;
 const size_t EEPROM_NTP_SERVER_LEN = 64;
-const size_t EEPROM_LOG_SERVER_URL_LEN = 128;
 const size_t EEPROM_RESET_REASON_LEN = 32;
 const size_t EEPROM_OPERATION_LEN = 32;
 
@@ -187,10 +173,8 @@ const uint16_t EEPROM_NTP_SERVER2_ADDR = 278;       // String (64 bytes)
 const uint16_t EEPROM_HOUR_FORMAT_ADDR = 342;       // bool (1 byte) 24h=1, 12h=0
 const uint16_t EEPROM_RESTART_COUNT_ADDR = 343;     // uint32_t (4 bytes)
 const uint16_t EEPROM_LAST_RESET_REASON_ADDR = 347; // String (32 bytes)
-const uint16_t EEPROM_LOG_SERVER_URL_ADDR = 379;     // String (128 bytes)
-const uint16_t EEPROM_LOG_SERVER_INTERVAL_ADDR = 507; // uint32_t (4 bytes)
-const uint16_t EEPROM_LAST_UPTIME_ADDR = 511;        // uint32_t (4 bytes) - Uptime vor letztem Restart
-const uint16_t EEPROM_LAST_HEAP_BEFORE_RESTART_ADDR = 515; // uint32_t (4 bytes) - Heap vor Restart
+const uint16_t EEPROM_LAST_UPTIME_ADDR = 379;        // uint32_t (4 bytes) - Uptime vor letztem Restart
+const uint16_t EEPROM_LAST_HEAP_BEFORE_RESTART_ADDR = 383; // uint32_t (4 bytes) - Heap vor Restart
 
 // Buffer-Größen Konstanten
 const size_t BUFFER_SIZE_HOSTNAME = 32;      // Hostname Buffer
@@ -220,7 +204,7 @@ Effect *effects[] = {
   &sandClockEffect
 };
 const uint8_t effectCount = sizeof(effects) / sizeof(effects[0]);
-uint8_t currentEffectIndex = 1; // start with clock
+uint8_t currentEffectIndex = 12; // start with sandclock
 Effect *currentEffect = effects[currentEffectIndex];
 // POSIX TZ String mit automatischer Sommer-/Winterzeit-Umstellung (DST)
 // Format: STD<offset>DST<offset>,start[/time],end[/time]
@@ -398,26 +382,11 @@ void loadBrightnessFromStorage() {
       lastResetReason[0] = '\0';
     }
 
-    // Log-Server-Einstellungen laden (nur wenn EEPROM_VERSION >= 3)
+    // Uptime und Heap vor Restart laden (nur wenn EEPROM_VERSION >= 3)
     if (version >= 3) {
-      char loadedLogServerUrl[EEPROM_LOG_SERVER_URL_LEN + 1];
-      readStringFromEEPROM(EEPROM_LOG_SERVER_URL_ADDR, loadedLogServerUrl, sizeof(loadedLogServerUrl));
-      if (strlen(loadedLogServerUrl) > 0) {
-        strncpy(logServerUrl, loadedLogServerUrl, sizeof(logServerUrl) - 1);
-        logServerUrl[sizeof(logServerUrl) - 1] = '\0';
-      }
-      uint32_t loadedInterval = 0;
-      EEPROM.get(EEPROM_LOG_SERVER_INTERVAL_ADDR, loadedInterval);
-      if (loadedInterval > 0) {
-        logServerInterval = loadedInterval;
-      }
-      
-      // Uptime und Heap vor Restart laden
       EEPROM.get(EEPROM_LAST_UPTIME_ADDR, lastUptimeBeforeRestart);
       EEPROM.get(EEPROM_LAST_HEAP_BEFORE_RESTART_ADDR, lastHeapBeforeRestart);
     } else {
-      // Migration von Version 2: Log-Server-Einstellungen aus secrets.h verwenden
-      // (Variablen sind bereits mit Defaults initialisiert)
       lastUptimeBeforeRestart = 0;
       lastHeapBeforeRestart = 0;
     }
@@ -456,7 +425,6 @@ void loadBrightnessFromStorage() {
     lastResetReason[0] = '\0';
     lastUptimeBeforeRestart = 0;
     lastHeapBeforeRestart = 0;
-    // Log-Server-Einstellungen bleiben bei Defaults aus secrets.h
   }
 }
 
@@ -519,22 +487,6 @@ void persistRestartInfo() {
   EEPROM.commit();
   // Watchdog nach blockierender EEPROM-Operation füttern
   ESP.wdtFeed();
-}
-
-// Speichert Log-Server-Einstellungen in EEPROM
-void persistLogServerToStorage() {
-  ensureEEPROMInitialized();
-  
-  // Log-Server-Daten schreiben
-  writeStringToEEPROM(EEPROM_LOG_SERVER_URL_ADDR, logServerUrl, EEPROM_LOG_SERVER_URL_LEN + 1);
-  EEPROM.put(EEPROM_LOG_SERVER_INTERVAL_ADDR, logServerInterval);
-  
-  // Checksumme neu berechnen und speichern
-  uint16_t checksum = calculateEEPROMChecksum();
-  EEPROM.put(EEPROM_CHECKSUM_ADDR, checksum);
-  
-  // Commit mit Watchdog-Fütterung
-  commitEEPROMWithWatchdog("persistLogServerToStorage");
 }
 
 // Speichert Uptime und Heap-Status vor Restart in EEPROM
@@ -1019,7 +971,6 @@ void handleStatus() {
     "\"otaEnabled\":%s,\"otaHostname\":\"%s\",\"ipAddress\":\"%s\","
     "\"firmwareVersion\":\"%s\",\"version\":\"%s\","
     "\"restartCount\":%lu,\"lastResetReason\":\"%s\","
-    "\"logServerUrl\":\"%s\",\"logServerInterval\":%lu,"
     "\"lastUptimeBeforeRestart\":%lu,\"lastHeapBeforeRestart\":%u,"
     "\"lastUptimeBeforeRestartHours\":%u,\"lastUptimeBeforeRestartMinutes\":%u,\"lastHeapBeforeRestartKB\":%u}",
     buf, currentEffect->name, currentEffect->name, tzString, tzString, hourFormatStr, use24HourFormat ? "true" : "false", brightness,
@@ -1035,7 +986,6 @@ void handleStatus() {
     (WiFi.status() == WL_CONNECTED) ? "true" : "false", hostname, ipAddress.c_str(),
     FIRMWARE_VERSION, FIRMWARE_VERSION,
     restartCount, lastResetReason,
-    logServerUrl, logServerInterval,
     lastUptimeBeforeRestart, lastHeapBeforeRestart,
     uptimeHours, uptimeMinutes, heapKB);
   
@@ -1262,44 +1212,17 @@ void handleSetMqtt() {
   server.send(200, "application/json", json);
 }
 
-void handleSetLogServer() {
+void handleResetRestartCount() {
   if (!checkRateLimit()) {
     server.send(429, "application/json", "{\"error\":\"Too many requests\"}");
     return;
   }
   
-  // Log-Server-Konfiguration setzen
-  if (server.hasArg("url")) {
-    String url = server.arg("url");
-    url.trim();
-    
-    // URL-Validierung: Muss mit http:// oder https:// beginnen oder leer sein (deaktiviert)
-    if (url.length() > 0 && url.indexOf("http://") != 0 && url.indexOf("https://") != 0) {
-      server.send(400, "application/json", "{\"error\":\"Invalid URL. Must start with http:// or https://\"}");
-      return;
-    }
-    
-    if (url.length() > INPUT_LOG_URL_MAX - 1) {
-      server.send(400, "application/json", "{\"error\":\"Log server URL too long\"}");
-      return;
-    }
-    copyServerArgToBuffer(url, logServerUrl, sizeof(logServerUrl));
-  }
+  restartCount = 0;
+  persistRestartInfo();
   
-  if (server.hasArg("interval")) {
-    unsigned long interval = server.arg("interval").toInt();
-    // Validierung: Mindestens 10 Sekunden, maximal 1 Stunde
-    if (interval < 10000) interval = 10000;
-    if (interval > 3600000) interval = 3600000;
-    logServerInterval = interval;
-  }
-  
-  // In EEPROM speichern
-  persistLogServerToStorage();
-  
-    char json[BUFFER_SIZE_JSON_MEDIUM];
-  snprintf(json, sizeof(json), "{\"logServerUrl\":\"%s\",\"logServerInterval\":%lu}", 
-           logServerUrl, logServerInterval);
+  char json[BUFFER_SIZE_JSON_SMALL];
+  snprintf(json, sizeof(json), "{\"restartCount\":%lu}", restartCount);
   server.send(200, "application/json", json);
 }
 
@@ -1520,6 +1443,37 @@ void setupNTP() {
   }
 }
 
+// Prüft ob NTP-Zeit noch synchronisiert ist und re-synchronisiert bei Bedarf
+void checkNtpSync() {
+  if (WiFi.status() != WL_CONNECTED) {
+    return; // Kein WiFi = kein NTP-Check möglich
+  }
+  
+  static time_t lastValidTime = 0;
+  time_t currentTime = time(nullptr);
+  
+  // Prüfe ob Zeit gültig ist
+  if (currentTime < 100000) {
+    Serial.println("[NTP_CHECK] Zeit ungültig, starte NTP-Sync...");
+    ntpConfigured = false; // Erzwinge erneutes Setup
+    return;
+  }
+  
+  // Prüfe ob Zeit zu weit abweicht (mehr als 5 Minuten Differenz)
+  if (lastValidTime > 0) {
+    time_t timeDiff = abs((long)(currentTime - lastValidTime));
+    if (timeDiff > 300) { // Mehr als 5 Minuten Differenz
+      Serial.printf("[NTP_CHECK] Zeitabweichung erkannt (%ld Sekunden), starte NTP-Sync...\n", timeDiff);
+      ntpConfigured = false; // Erzwinge erneutes Setup
+      lastValidTime = 0; // Reset
+      return;
+    }
+  }
+  
+  // Zeit ist gültig, speichere für nächsten Check
+  lastValidTime = currentTime;
+}
+
 void setup() {
   Serial.begin(115200);
   Serial.printf("Starting up... Free heap: %d bytes\n", ESP.getFreeHeap());
@@ -1562,7 +1516,17 @@ void setup() {
     Serial.println("WARNUNG: SPIFFS ist nicht verfügbar - Debug-Logging wird nur über Serial funktionieren");
   }
   
+  // EEPROM ZUERST laden, BEVOR logRestart() aufgerufen wird
+  // Dies stellt sicher, dass lastOperation, lastUptimeBeforeRestart und lastHeapBeforeRestart
+  // bereits geladen sind, wenn das Restart-Log geschrieben wird
+  EEPROM.begin(EEPROM_SIZE);
+  loadBrightnessFromStorage();
+  
+  // Uptime und Heap vor Restart wurden bereits in loadBrightnessFromStorage() geladen
+  // Diese Werte stammen vom letzten Lauf vor dem Restart
+  
   // Automatisches Restart-Logging (immer aktiv, unabhängig von DEBUG_LOGGING_ENABLED)
+  // WICHTIG: Wird NACH loadBrightnessFromStorage() aufgerufen, damit lastOperation etc. verfügbar sind
   if (spiffsOk) {
     logRestart();
     String resetReason = ESP.getResetReason();
@@ -1598,12 +1562,6 @@ void setup() {
     debugLogJson("setup", "System startup", "A", "{\"freeHeap\":%d}", ESP.getFreeHeap());
   }
 #endif // DEBUG_LOGGING_ENABLED
-
-  EEPROM.begin(EEPROM_SIZE);
-  loadBrightnessFromStorage();
-  
-  // Uptime und Heap vor Restart wurden bereits in loadBrightnessFromStorage() geladen
-  // Diese Werte stammen vom letzten Lauf vor dem Restart
   
   // Restart-Counter erhöhen und aktuellen Reset-Grund speichern
   // (wird bereits in loadBrightnessFromStorage() geladen, falls vorhanden)
@@ -1702,29 +1660,6 @@ void setup() {
     Serial.println("3. Click Upload (password: admin)");
     Serial.println("========================================");
     
-    // WICHTIG: Restart-Logs sofort nach WiFi-Verbindung senden
-    // Dies stellt sicher, dass Restart-Logs nicht verloren gehen, wenn das Gerät schnell neu startet
-    if (strlen(logServerUrl) > 0 && SPIFFS.exists("/debug.log")) {
-      File logFile = SPIFFS.open("/debug.log", "r");
-      if (logFile && logFile.size() > 0) {
-        // Prüfe ob Restart-Logs enthalten sind (schnelle Prüfung der ersten Zeile)
-        String firstLine = logFile.readStringUntil('\n');
-        logFile.close();
-        
-        if (firstLine.indexOf("restart_") >= 0) {
-          Serial.println("[SETUP] Restart-Logs gefunden - sende sofort nach WiFi-Verbindung...");
-          ESP.wdtFeed(); // Watchdog füttern vor blockierender Operation
-          bool success = sendLogsToServer();
-          if (success) {
-            Serial.println("[SETUP] Restart-Logs erfolgreich gesendet");
-            lastLogUpload = millis(); // Reset Intervall
-          } else {
-            Serial.println("[SETUP] Fehler beim Senden der Restart-Logs - werden später erneut versucht");
-          }
-          ESP.wdtFeed(); // Watchdog nach blockierender Operation
-        }
-      }
-    }
   }
 
   server.on("/", handleRoot);
@@ -1735,7 +1670,7 @@ void setup() {
   server.on("/api/setAutoBrightness", handleSetAutoBrightness);
   server.on("/api/setMqtt", handleSetMqtt);
   server.on("/api/setDisplay", handleSetDisplay);  // HA-Integration Endpoint
-  server.on("/api/setLogServer", handleSetLogServer);
+  server.on("/api/resetRestartCount", handleResetRestartCount);
   server.on("/effect/snake", []() { selectEffect(0); });
   server.on("/effect/clock", []() { selectEffect(1); });
   server.on("/effect/rain", []() { selectEffect(2); });
@@ -1876,9 +1811,9 @@ void loop() {
   static unsigned long lastPresenceCheck = 0;
   static unsigned long lastWatchdogFeed = 0;
   static unsigned long loopCount = 0;
-  static unsigned long lastLoopStart = 0;
   
 #ifdef DEBUG_LOGGING_ENABLED
+  static unsigned long lastLoopStart = 0;
   unsigned long loopStart = millis();
   unsigned long loopDuration = 0;
   if (lastLoopStart > 0) {
@@ -1897,8 +1832,6 @@ void loop() {
     }
   }
   lastLoopStart = loopStart;
-#else
-  static unsigned long lastLoopStart = 0;
 #endif
   
   // FIX: Watchdog sofort füttern zu Beginn jedes Loops (verhindert Neustarts)
@@ -2021,6 +1954,14 @@ void loop() {
     ntpConfigured = true;
   }
 
+  // Regelmäßiger NTP-Zeit-Check (alle 1 Stunde)
+  static unsigned long lastNtpCheck = 0;
+  const unsigned long NTP_CHECK_INTERVAL = 3600000; // 1 Stunde
+  if (timeDiff(millis(), lastNtpCheck) >= NTP_CHECK_INTERVAL) {
+    checkNtpSync();
+    lastNtpCheck = millis();
+  }
+
   // Uptime und Heap-Status alle 30 Sekunden in EEPROM speichern (nur wenn sich signifikant ändert)
   static unsigned long lastUptimeHeapSave = 0;
   if (timeDiff(millis(), lastUptimeHeapSave) >= 30000) {
@@ -2037,69 +1978,6 @@ void loop() {
       persistUptimeHeapStatus();
     }
     lastUptimeHeapSave = millis();
-  }
-
-  // Automatisches Senden von Logs an Server (falls konfiguriert)
-  if (WiFi.status() == WL_CONNECTED && strlen(logServerUrl) > 0) {
-    // Sofort senden wenn WiFi gerade verbunden wurde und Restart-Logs vorhanden sind
-    static bool wifiJustConnected = false;
-    static unsigned long lastWifiStatusCheck = 0;
-    static wl_status_t lastWifiStatus = WL_DISCONNECTED;
-    
-    wl_status_t currentWifiStatus = WiFi.status();
-    unsigned long now = millis();
-    
-    // Prüfe ob WiFi gerade verbunden wurde (Status-Wechsel von nicht-verbunden zu verbunden)
-    if (currentWifiStatus == WL_CONNECTED && lastWifiStatus != WL_CONNECTED) {
-      wifiJustConnected = true;
-      Serial.println("[LOOP] WiFi gerade verbunden - prüfe auf Restart-Logs...");
-    }
-    lastWifiStatus = currentWifiStatus;
-    lastWifiStatusCheck = now;
-    
-    // Wenn WiFi gerade verbunden wurde, sofort Restart-Logs senden
-    if (wifiJustConnected && SPIFFS.exists("/debug.log")) {
-      File logFile = SPIFFS.open("/debug.log", "r");
-      if (logFile && logFile.size() > 0) {
-        // Prüfe ob Restart-Logs enthalten sind
-        String firstLine = logFile.readStringUntil('\n');
-        logFile.close();
-        
-        if (firstLine.indexOf("restart_") >= 0) {
-          Serial.println("[LOOP] Restart-Logs gefunden - sende sofort nach WiFi-Verbindung...");
-          strncpy(lastOperation, "sendLogsToServer", sizeof(lastOperation) - 1);
-          lastOperation[sizeof(lastOperation) - 1] = '\0';
-          debugLogJson("loop", "Log upload start (immediate after WiFi)", "C", "{\"url\":\"%s\",\"freeHeap\":%d}", logServerUrl, ESP.getFreeHeap());
-          bool success = sendLogsToServer();
-          if (success) {
-            Serial.println("[LOOP] Restart-Logs erfolgreich gesendet");
-            lastLogUpload = millis(); // Reset Intervall
-          } else {
-            Serial.println("[LOOP] Fehler beim Senden der Restart-Logs - werden später erneut versucht");
-          }
-          debugLogJson("loop", success ? "Log upload success (immediate)" : "Log upload failed (immediate)", "C", "{}");
-          wifiJustConnected = false; // Reset Flag
-        } else {
-          wifiJustConnected = false; // Keine Restart-Logs, Flag zurücksetzen
-        }
-      } else {
-        wifiJustConnected = false; // Keine Log-Datei, Flag zurücksetzen
-      }
-    }
-    
-    // Normales Intervall-basiertes Senden
-    if (timeDiff(millis(), lastLogUpload) >= logServerInterval) {
-      strncpy(lastOperation, "sendLogsToServer", sizeof(lastOperation) - 1);
-      lastOperation[sizeof(lastOperation) - 1] = '\0';
-      Serial.printf("[LOG_SERVER] Versuche Logs zu senden an: %s\n", logServerUrl);
-      debugLogJson("loop", "Log upload start", "C", "{\"url\":\"%s\",\"freeHeap\":%d}", logServerUrl, ESP.getFreeHeap());
-      bool success = sendLogsToServer();
-      if (!success) {
-        Serial.println("[LOG_SERVER] Senden fehlgeschlagen - siehe Details oben");
-      }
-      debugLogJson("loop", success ? "Log upload success" : "Log upload failed", "C", "{}");
-      lastLogUpload = millis();
-    }
   }
 
   // MQTT Reconnection mit Exponential Backoff
@@ -2180,6 +2058,70 @@ void loop() {
   if (timeDiff(millis(), lastBrightnessUpdate) > AUTO_BRIGHTNESS_UPDATE_INTERVAL) {
     updateAutoBrightness();
     lastBrightnessUpdate = millis();
+  }
+
+  // Bedingter Restart um 2 Uhr morgens (nur wenn Heap < 10KB oder Uptime > 7 Tage)
+  static unsigned long lastScheduledRestartCheck = 0;
+  const unsigned long SCHEDULED_RESTART_CHECK_INTERVAL = 60000; // Alle 60 Sekunden prüfen
+  const uint32_t RESTART_HEAP_THRESHOLD = 10240; // 10KB Heap-Schwelle
+  const unsigned long RESTART_UPTIME_DAYS = 7; // 7 Tage Uptime-Schwelle
+  
+  if (timeDiff(millis(), lastScheduledRestartCheck) >= SCHEDULED_RESTART_CHECK_INTERVAL) {
+    time_t now = time(nullptr);
+    struct tm *t = localtime(&now);
+    
+    // Prüfe ob es zwischen 2:00-2:05 Uhr ist
+    if (t && t->tm_hour == 2 && t->tm_min >= 0 && t->tm_min < 5) {
+      uint32_t freeHeap = ESP.getFreeHeap();
+      unsigned long uptime = millis();
+      unsigned long uptimeDays = uptime / (24UL * 3600UL * 1000UL);
+      
+      // Prüfe Bedingungen: Heap < 10KB ODER Uptime > 7 Tage
+      bool restartNeeded = (freeHeap < RESTART_HEAP_THRESHOLD) || (uptimeDays > RESTART_UPTIME_DAYS);
+      
+      if (restartNeeded) {
+        // Sicherheitsprüfungen
+        bool safeToRestart = true;
+        
+        // WiFi muss verbunden sein
+        if (WiFi.status() != WL_CONNECTED) {
+          safeToRestart = false;
+          Serial.println("[SCHEDULED_RESTART] WiFi nicht verbunden, Restart übersprungen");
+        }
+        
+        // Zeit muss synchronisiert sein
+        if (now < 100000) {
+          safeToRestart = false;
+          Serial.println("[SCHEDULED_RESTART] Zeit nicht synchronisiert, Restart übersprungen");
+        }
+        
+        // Keine kritische Operation darf laufen
+        if (strlen(lastOperation) > 0) {
+          // Prüfe ob kritische Operation (EEPROM, NTP, etc.)
+          if (strstr(lastOperation, "EEPROM") != nullptr || 
+              strstr(lastOperation, "setupNTP") != nullptr ||
+              strstr(lastOperation, "sendLogsToServer") != nullptr) {
+            safeToRestart = false;
+            Serial.printf("[SCHEDULED_RESTART] Kritische Operation läuft: %s, Restart übersprungen\n", lastOperation);
+          }
+        }
+        
+        if (safeToRestart) {
+          Serial.printf("[SCHEDULED_RESTART] Bedingter Restart um 2:00 AM - Heap: %d bytes, Uptime: %lu Tage\n", 
+                        freeHeap, uptimeDays);
+          
+          // Uptime und Heap vor Restart speichern
+          persistUptimeHeapStatus();
+          
+          // Kurze Verzögerung für Serial-Output
+          delay(1000);
+          
+          ESP.restart();
+        }
+      }
+    }
+    
+    lastScheduledRestartCheck = millis();
   }
 
   yield();
