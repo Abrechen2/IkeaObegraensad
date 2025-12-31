@@ -19,7 +19,7 @@ extern "C" {
 //#define DEBUG_LOGGING_ENABLED
 
 // Firmware-Version
-#define FIRMWARE_VERSION "1.5.0"
+#define FIRMWARE_VERSION "1.5.1"
 
 #include "Matrix.h"
 #include "Effect.h"
@@ -150,6 +150,7 @@ const size_t EEPROM_MQTT_TOPIC_LEN = 64;
 const size_t EEPROM_NTP_SERVER_LEN = 64;
 const size_t EEPROM_RESET_REASON_LEN = 32;
 const size_t EEPROM_OPERATION_LEN = 32;
+const size_t EEPROM_TZ_STRING_LEN = 128;
 
 // EEPROM-Adressen (mit Versionierung und Checksumme)
 const uint16_t EEPROM_VERSION_ADDR = 0;      // uint8_t (1 byte)
@@ -175,6 +176,7 @@ const uint16_t EEPROM_RESTART_COUNT_ADDR = 343;     // uint32_t (4 bytes)
 const uint16_t EEPROM_LAST_RESET_REASON_ADDR = 347; // String (32 bytes)
 const uint16_t EEPROM_LAST_UPTIME_ADDR = 379;        // uint32_t (4 bytes) - Uptime vor letztem Restart
 const uint16_t EEPROM_LAST_HEAP_BEFORE_RESTART_ADDR = 383; // uint32_t (4 bytes) - Heap vor Restart
+const uint16_t EEPROM_TZ_STRING_ADDR = 387;          // String (128 bytes) - Zeitzone
 
 // Buffer-Größen Konstanten
 const size_t BUFFER_SIZE_HOSTNAME = 32;      // Hostname Buffer
@@ -370,6 +372,15 @@ void loadBrightnessFromStorage() {
       ntpServer2[sizeof(ntpServer2) - 1] = '\0';
     }
     use24HourFormat = EEPROM.read(EEPROM_HOUR_FORMAT_ADDR) != 0;
+    
+    // Zeitzone laden
+    char loadedTz[EEPROM_TZ_STRING_LEN + 1];
+    readStringFromEEPROM(EEPROM_TZ_STRING_ADDR, loadedTz, sizeof(loadedTz));
+    // Validierung: Nur verwenden wenn String nicht leer ist
+    if (strlen(loadedTz) > 0 && strlen(loadedTz) < EEPROM_TZ_STRING_LEN) {
+      strncpy(tzString, loadedTz, sizeof(tzString) - 1);
+      tzString[sizeof(tzString) - 1] = '\0';
+    }
 
     // Restart-Counter laden (nur wenn EEPROM_VERSION >= 2)
     uint8_t version = EEPROM.read(EEPROM_VERSION_ADDR);
@@ -421,6 +432,7 @@ void loadBrightnessFromStorage() {
     strncpy(ntpServer2, "time.nist.gov", sizeof(ntpServer2) - 1);
     ntpServer2[sizeof(ntpServer2) - 1] = '\0';
     use24HourFormat = true;
+    // Zeitzone: Standardwert verwenden (bereits in tzString initialisiert)
     restartCount = 0;
     lastResetReason[0] = '\0';
     lastUptimeBeforeRestart = 0;
@@ -439,6 +451,7 @@ void persistBrightnessToStorage() {
   EEPROM.put(EEPROM_SENSOR_MIN_ADDR, sensorMin);
   EEPROM.put(EEPROM_SENSOR_MAX_ADDR, sensorMax);
   EEPROM.write(EEPROM_HOUR_FORMAT_ADDR, use24HourFormat ? 1 : 0);
+  writeStringToEEPROM(EEPROM_TZ_STRING_ADDR, tzString, EEPROM_TZ_STRING_LEN + 1);
   
   // Checksumme berechnen und speichern
   uint16_t checksum = calculateEEPROMChecksum();
@@ -1009,8 +1022,8 @@ void handleSetTimezone() {
     size_t tzLen = min(tzArg.length(), (size_t)(INPUT_TZ_MAX - 1));
     strncpy(tzString, tzArg.c_str(), tzLen);
     tzString[tzLen] = '\0';
-    setenv("TZ", tzString, 1);
-    tzset();
+    setupTimezone(); // Zeitzone setzen
+    persistBrightnessToStorage(); // Im EEPROM speichern
     // Debug: Neue Zeit nach Zeitzone-Änderung
     time_t now = time(nullptr);
     struct tm *local = localtime(&now);
@@ -1370,6 +1383,12 @@ bool setupWiFi() {
   return false;
 }
 
+// Setzt die Zeitzone basierend auf tzString
+void setupTimezone() {
+  setenv("TZ", tzString, 1);
+  tzset(); // Zeitzone anwenden
+}
+
 void setupNTP() {
   // WICHTIG: configTime() speichert möglicherweise nur die Pointer, nicht die Strings
   // Daher müssen wir sicherstellen, dass die Pointer während der gesamten Laufzeit gültig bleiben
@@ -1411,8 +1430,7 @@ void setupNTP() {
   
   configTime(0, 0, ntp1, ntp2);
   // Zeitzone mit POSIX TZ String setzen - DST (Sommer-/Winterzeit) wird automatisch berücksichtigt
-  setenv("TZ", tzString, 1);
-  tzset(); // Zeitzone anwenden
+  setupTimezone();
 
   Serial.print("Waiting for NTP sync");
   int attempts = 0;
@@ -1455,6 +1473,7 @@ void checkNtpSync() {
   // Prüfe ob Zeit gültig ist
   if (currentTime < 100000) {
     Serial.println("[NTP_CHECK] Zeit ungültig, starte NTP-Sync...");
+    setupTimezone(); // Zeitzone sicherstellen
     ntpConfigured = false; // Erzwinge erneutes Setup
     return;
   }
@@ -1464,6 +1483,7 @@ void checkNtpSync() {
     time_t timeDiff = abs((long)(currentTime - lastValidTime));
     if (timeDiff > 300) { // Mehr als 5 Minuten Differenz
       Serial.printf("[NTP_CHECK] Zeitabweichung erkannt (%ld Sekunden), starte NTP-Sync...\n", timeDiff);
+      setupTimezone(); // Zeitzone sicherstellen
       ntpConfigured = false; // Erzwinge erneutes Setup
       lastValidTime = 0; // Reset
       return;
@@ -1521,6 +1541,9 @@ void setup() {
   // bereits geladen sind, wenn das Restart-Log geschrieben wird
   EEPROM.begin(EEPROM_SIZE);
   loadBrightnessFromStorage();
+  
+  // Zeitzone setzen (nach dem Laden aus EEPROM)
+  setupTimezone();
   
   // Uptime und Heap vor Restart wurden bereits in loadBrightnessFromStorage() geladen
   // Diese Werte stammen vom letzten Lauf vor dem Restart
