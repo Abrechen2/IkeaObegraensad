@@ -19,7 +19,7 @@ extern "C" {
 //#define DEBUG_LOGGING_ENABLED
 
 // Firmware-Version
-#define FIRMWARE_VERSION "1.5.1"
+#define FIRMWARE_VERSION "1.5.7"
 
 #include "Matrix.h"
 #include "Effect.h"
@@ -210,12 +210,13 @@ uint8_t currentEffectIndex = 12; // start with sandclock
 Effect *currentEffect = effects[currentEffectIndex];
 // POSIX TZ String mit automatischer Sommer-/Winterzeit-Umstellung (DST)
 // Format: STD<offset>DST<offset>,start[/time],end[/time]
-// Beispiel: CET-1CEST-2,M3.5.0/2,M10.5.0/3
+// Beispiel: CET-1CEST-2,M3.5.0/02,M10.5.0/03
 //   - CET-1 = Central European Time (Standardzeit), UTC+1 (Offset -1)
 //   - CEST-2 = Central European Summer Time (Sommerzeit), UTC+2 (Offset -2)
-//   - M3.5.0/2 = März (M3), 5. Woche, Sonntag (0) = letzter Sonntag im März um 02:00 Uhr lokaler Zeit
-//   - M10.5.0/3 = Oktober (M10), 5. Woche, Sonntag, um 03:00 Uhr lokaler Zeit = letzter Sonntag im Oktober
-char tzString[INPUT_TZ_MAX] = "CET-1CEST-2,M3.5.0/2,M10.5.0/3"; // default Europe/Berlin mit DST
+//   - M3.5.0/02 = März (M3), 5. Woche, Sonntag (0) = letzter Sonntag im März um 02:00 Uhr lokaler Zeit
+//   - M10.5.0/03 = Oktober (M10), 5. Woche, Sonntag, um 03:00 Uhr lokaler Zeit = letzter Sonntag im Oktober
+// WICHTIG: ESP8266 benötigt expliziten DST-Offset (CEST-2), automatische Berechnung funktioniert nicht zuverlässig
+char tzString[INPUT_TZ_MAX] = "CET-1CEST-2,M3.5.0/02,M10.5.0/03"; // default Europe/Berlin mit DST
 char ntpServer1[INPUT_NTP_SERVER_MAX] = "0.de.pool.ntp.org"; // Primärer NTP-Server (konfigurierbar)
 char ntpServer2[INPUT_NTP_SERVER_MAX] = "1.de.pool.ntp.org"; // Sekundärer NTP-Server (konfigurierbar)
 bool use24HourFormat = true; // 24h-Format standardmäßig aktiv
@@ -380,6 +381,23 @@ void loadBrightnessFromStorage() {
     if (strlen(loadedTz) > 0 && strlen(loadedTz) < EEPROM_TZ_STRING_LEN) {
       strncpy(tzString, loadedTz, sizeof(tzString) - 1);
       tzString[sizeof(tzString) - 1] = '\0';
+      
+      // Migration: Korrigiere altes TZ-Format ohne expliziten DST-Offset
+      // Alt: "CET-1CEST,M3.5.0/02,M10.5.0/03"
+      // Neu: "CET-1CEST-2,M3.5.0/02,M10.5.0/03"
+      if (strstr(tzString, "CET-1CEST,") != nullptr && strstr(tzString, "CEST-2") == nullptr) {
+        Serial.println("[EEPROM] Migriere TZ-String: Füge expliziten DST-Offset hinzu");
+        // Ersetze direkt den gesamten String
+        const char* newTz = "CET-1CEST-2,M3.5.0/02,M10.5.0/03";
+        strncpy(tzString, newTz, sizeof(tzString) - 1);
+        tzString[sizeof(tzString) - 1] = '\0';
+        // Speichere migrierten Wert zurück
+        writeStringToEEPROM(EEPROM_TZ_STRING_ADDR, tzString, EEPROM_TZ_STRING_LEN + 1);
+        uint16_t checksum = calculateEEPROMChecksum();
+        EEPROM.put(EEPROM_CHECKSUM_ADDR, checksum);
+        commitEEPROMWithWatchdog("TZ migration");
+        Serial.printf("[EEPROM] TZ-String migriert zu: %s\n", tzString);
+      }
     }
 
     // Restart-Counter laden (nur wenn EEPROM_VERSION >= 2)
@@ -921,7 +939,7 @@ void handleStatus() {
     return;
   }
   time_t now = time(nullptr);
-  struct tm *t = localtime(&now);
+  struct tm *t = getLocalTime(now);
   char buf[16];
   int displayHour = t ? formatHourForDisplay(t->tm_hour) : 0;
   const char* suffix = (!use24HourFormat && t) ? (t->tm_hour >= 12 ? " PM" : " AM") : "";
@@ -1012,6 +1030,9 @@ void handleStatus() {
   server.send(200, "application/json", json);
 }
 
+// Vorwärtsdeklarationen
+void setupTimezone(const char* server1 = NULL, const char* server2 = NULL);
+
 void handleSetTimezone() {
   if (!checkRateLimit()) {
     server.send(429, "application/json", "{\"error\":\"Too many requests\"}");
@@ -1026,7 +1047,7 @@ void handleSetTimezone() {
     persistBrightnessToStorage(); // Im EEPROM speichern
     // Debug: Neue Zeit nach Zeitzone-Änderung
     time_t now = time(nullptr);
-    struct tm *local = localtime(&now);
+    struct tm *local = getLocalTime(now);
     if (local) {
       Serial.printf("Timezone changed to: %s, Local time: %02d:%02d:%02d\n",
                     tzString, local->tm_hour, local->tm_min, local->tm_sec);
@@ -1383,10 +1404,140 @@ bool setupWiFi() {
   return false;
 }
 
-// Setzt die Zeitzone basierend auf tzString
-void setupTimezone() {
-  setenv("TZ", tzString, 1);
-  tzset(); // Zeitzone anwenden
+// Validiert ob die Zeit plausibel ist
+bool isTimeValid(time_t t) {
+  if (t < 100000) return false; // Zu klein (vor 1970)
+  struct tm *tm_info = gmtime(&t);
+  if (!tm_info) return false;
+  int year = tm_info->tm_year + 1900;
+  // Prüfe ob Zeit zwischen 2020 und 2100 liegt
+  return (year >= 2020 && year < 2100);
+}
+
+// Berechnet den Zeitzonen-Offset in Sekunden für Europa/Berlin (UTC+1 im Winter, UTC+2 im Sommer)
+// Berücksichtigt DST-Regeln: Letzter Sonntag im März 02:00 lokaler Zeit (01:00 UTC) -> UTC+2
+//                           Letzter Sonntag im Oktober 03:00 lokaler Zeit (01:00 UTC) -> UTC+1
+// Input: UTC-Zeit (time_t)
+// Returns: Offset in Sekunden (3600 für CET, 7200 für CEST)
+int getTimezoneOffset(time_t utcTime) {
+  struct tm *utc = gmtime(&utcTime);
+  if (!utc) return 3600; // Default: CET (UTC+1)
+  
+  int year = utc->tm_year + 1900;
+  int month = utc->tm_mon + 1; // tm_mon ist 0-11
+  int day = utc->tm_mday;
+  int hour = utc->tm_hour;
+  
+  // April bis September: immer DST (CEST, UTC+2)
+  if (month >= 4 && month <= 9) {
+    return 7200; // CEST
+  }
+  
+  // November bis Februar: nie DST (CET, UTC+1)
+  if (month == 11 || month == 12 || month == 1 || month == 2) {
+    return 3600; // CET
+  }
+  
+  // März: DST beginnt am letzten Sonntag um 02:00 Uhr lokaler Zeit = 01:00 UTC
+  // Vereinfachte Berechnung: Letzter Sonntag ist zwischen 25-31
+  // Wir iterieren rückwärts vom 31. März und finden den letzten Sonntag
+  if (month == 3) {
+    int lastSunday = 25; // Minimum
+    // Iteriere rückwärts vom 31. März
+    for (int d = 31; d >= 25; d--) {
+      // Berechne time_t für Tag d, 01:00 UTC
+      int daysDiff = d - day;
+      time_t testTime = utcTime + (daysDiff * 86400);
+      // Setze auf 01:00 UTC
+      testTime = testTime - (utc->tm_hour * 3600) - (utc->tm_min * 60) - utc->tm_sec + 3600;
+      struct tm *testTm = gmtime(&testTime);
+      if (testTm && testTm->tm_mon == 2 && testTm->tm_mday == d && testTm->tm_wday == 0) {
+        lastSunday = d;
+        break;
+      }
+    }
+    // DST aktiv wenn nach letztem Sonntag, oder am letzten Sonntag nach 01:00 UTC
+    if (day > lastSunday || (day == lastSunday && hour >= 1)) {
+      return 7200; // CEST
+    }
+    return 3600; // CET
+  }
+  
+  // Oktober: DST endet am letzten Sonntag um 03:00 Uhr lokaler Zeit = 01:00 UTC
+  if (month == 10) {
+    int lastSunday = 25;
+    for (int d = 31; d >= 25; d--) {
+      int daysDiff = d - day;
+      time_t testTime = utcTime + (daysDiff * 86400);
+      testTime = testTime - (utc->tm_hour * 3600) - (utc->tm_min * 60) - utc->tm_sec + 3600;
+      struct tm *testTm = gmtime(&testTime);
+      if (testTm && testTm->tm_mon == 9 && testTm->tm_mday == d && testTm->tm_wday == 0) {
+        lastSunday = d;
+        break;
+      }
+    }
+    // DST aktiv wenn vor letztem Sonntag, oder am letzten Sonntag vor 01:00 UTC
+    if (day < lastSunday || (day == lastSunday && hour < 1)) {
+      return 7200; // CEST
+    }
+    return 3600; // CET
+  }
+  
+  return 3600; // Default: CET
+}
+
+// Berechnet ob DST aktiv ist (für Rückwärtskompatibilität)
+bool isDST(time_t utcTime) {
+  return getTimezoneOffset(utcTime) == 7200;
+}
+
+// Konvertiert UTC-Zeit zu lokaler Zeit (Europa/Berlin)
+// Input: UTC-Zeit (time_t) - time(nullptr) liefert UTC wenn configTime(0,0,...) verwendet wurde
+// Output: struct tm mit lokaler Zeit (statischer Buffer, bei nächstem Aufruf überschrieben)
+struct tm* getLocalTime(time_t utcTime) {
+  static struct tm localTm;
+  int offset = getTimezoneOffset(utcTime);
+  time_t localTime = utcTime + offset;
+  struct tm *result = gmtime(&localTime);
+  if (result) {
+    localTm = *result;
+    return &localTm;
+  }
+  return nullptr;
+}
+
+// Setzt NTP-Server (nur UTC-Basis, keine Zeitzone)
+// server1 und server2 können NULL sein, dann werden die aktuellen NTP-Server beibehalten
+void setupTimezone(const char* server1, const char* server2) {
+  // WICHTIG: configTime() immer mit Offset 0 aufrufen (UTC-Basis)
+  // Zeitzone wird manuell über getLocalTime() berechnet
+  if (server1 && server2) {
+    configTime(0, 0, server1, server2);
+  } else if (server1) {
+    configTime(0, 0, server1, NULL);
+  } else {
+    // Keine Server angegeben - verwende globale NTP-Server
+    configTime(0, 0, ntpServer1, strlen(ntpServer2) > 0 ? ntpServer2 : NULL);
+  }
+  
+  // Debug: Zeitzone und Zeit ausgeben (nur wenn Zeit synchronisiert)
+  time_t now = time(nullptr);
+  if (now >= 100000) {
+    int offset = getTimezoneOffset(now);
+    struct tm *utc = gmtime(&now);
+    struct tm *local = getLocalTime(now);
+    if (utc && local) {
+      Serial.printf("[TIMEZONE] Offset: %d Sekunden (%d Stunden, DST: %s)\n", 
+                    offset, offset / 3600, offset == 7200 ? "aktiv" : "inaktiv");
+      Serial.printf("[TIMEZONE] UTC:   %04d-%02d-%02d %02d:%02d:%02d\n",
+                    utc->tm_year + 1900, utc->tm_mon + 1, utc->tm_mday,
+                    utc->tm_hour, utc->tm_min, utc->tm_sec);
+      Serial.printf("[TIMEZONE] Local: %04d-%02d-%02d %02d:%02d:%02d (diff: %d hours)\n",
+                    local->tm_year + 1900, local->tm_mon + 1, local->tm_mday,
+                    local->tm_hour, local->tm_min, local->tm_sec, offset / 3600);
+      Serial.println("[TIMEZONE] Zeitzone manuell berechnet (UTC-Basis)");
+    }
+  }
 }
 
 void setupNTP() {
@@ -1428,8 +1579,38 @@ void setupNTP() {
   Serial.printf("NTP servers: '%s', '%s'\n", ntp1, ntp2);
   Serial.printf("Original strings - ntpServer1 length=%zu, ntpServer2 length=%zu\n", strlen(ntpServer1), strlen(ntpServer2));
   
-  configTime(0, 0, ntp1, ntp2);
-  // Zeitzone mit POSIX TZ String setzen - DST (Sommer-/Winterzeit) wird automatisch berücksichtigt
+  // Versuche mehrere NTP-Server nacheinander
+  const char* ntpServers[] = {ntp1, ntp2, "pool.ntp.org", "time.nist.gov"};
+  bool syncSuccess = false;
+  
+  for (int i = 0; i < 4; i++) {
+    if (strlen(ntpServers[i]) > 0) {
+      Serial.printf("[NTP] Versuche Sync mit %s...\n", ntpServers[i]);
+      // Verwende configTime() mit Offset 0 (UTC) - Zeitzone wird später in setupTimezone() gesetzt
+      configTime(0, 0, ntpServers[i]);
+      
+      // Warte kurz und prüfe ob Sync erfolgreich
+      delay(2000);
+      yield();
+      ESP.wdtFeed();
+      
+      time_t testTime = time(nullptr);
+      if (isTimeValid(testTime)) {
+        Serial.printf("[NTP] Sync erfolgreich mit %s\n", ntpServers[i]);
+        syncSuccess = true;
+        break;
+      } else {
+        Serial.printf("[NTP] Sync mit %s fehlgeschlagen\n", ntpServers[i]);
+      }
+    }
+  }
+  
+  if (!syncSuccess) {
+    // Fallback: Verwende beide Server gleichzeitig
+    configTime(0, 0, ntp1, ntp2);
+  }
+  
+  // Zeitzone NACH configTime() setzen (mit expliziten Offsets)
   setupTimezone();
 
   Serial.print("Waiting for NTP sync");
@@ -1446,17 +1627,24 @@ void setupNTP() {
     Serial.println("\nNTP sync failed, continuing anyway...");
   } else {
     Serial.println("\nNTP sync successful!");
+    
+    // Zeitzone ERNEUT setzen nach NTP-Sync (wichtig!)
+    setupTimezone();
+    
     // Debug: UTC und lokale Zeit ausgeben
+    delay(500); // Warte kurz, damit configTime() wirksam wird
     time_t now = time(nullptr);
     struct tm *utc = gmtime(&now);
-    struct tm *local = localtime(&now);
+    struct tm *local = getLocalTime(now);
     if (utc && local) {
-      Serial.printf("UTC time: %04d-%02d-%02d %02d:%02d:%02d\n",
+      int offset = getTimezoneOffset(now);
+      Serial.printf("[NTP] UTC time:   %04d-%02d-%02d %02d:%02d:%02d\n",
                     utc->tm_year + 1900, utc->tm_mon + 1, utc->tm_mday,
                     utc->tm_hour, utc->tm_min, utc->tm_sec);
-      Serial.printf("Local time: %04d-%02d-%02d %02d:%02d:%02d (TZ: %s)\n",
+      Serial.printf("[NTP] Local time: %04d-%02d-%02d %02d:%02d:%02d (offset: %d hours, DST: %s)\n",
                     local->tm_year + 1900, local->tm_mon + 1, local->tm_mday,
-                    local->tm_hour, local->tm_min, local->tm_sec, tzString);
+                    local->tm_hour, local->tm_min, local->tm_sec, offset / 3600,
+                    offset == 7200 ? "aktiv" : "inaktiv");
     }
   }
 }
@@ -1984,6 +2172,15 @@ void loop() {
     checkNtpSync();
     lastNtpCheck = millis();
   }
+  
+  // Periodische vollständige NTP-Resynchronisation (alle 6 Stunden)
+  static unsigned long lastFullNtpSync = 0;
+  const unsigned long FULL_NTP_SYNC_INTERVAL = 21600000; // 6 Stunden (6 * 60 * 60 * 1000)
+  if (WiFi.status() == WL_CONNECTED && timeDiff(millis(), lastFullNtpSync) >= FULL_NTP_SYNC_INTERVAL) {
+    Serial.println("[NTP] Periodische vollständige Resynchronisation...");
+    ntpConfigured = false; // Erzwingt vollständigen Sync
+    lastFullNtpSync = millis();
+  }
 
   // Uptime und Heap-Status alle 30 Sekunden in EEPROM speichern (nur wenn sich signifikant ändert)
   static unsigned long lastUptimeHeapSave = 0;
@@ -2091,7 +2288,7 @@ void loop() {
   
   if (timeDiff(millis(), lastScheduledRestartCheck) >= SCHEDULED_RESTART_CHECK_INTERVAL) {
     time_t now = time(nullptr);
-    struct tm *t = localtime(&now);
+    struct tm *t = getLocalTime(now);
     
     // Prüfe ob es zwischen 2:00-2:05 Uhr ist
     if (t && t->tm_hour == 2 && t->tm_min >= 0 && t->tm_min < 5) {

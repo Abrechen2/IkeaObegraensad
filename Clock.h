@@ -8,6 +8,7 @@
 
 extern bool use24HourFormat;
 uint8_t formatHourForDisplay(uint8_t hour);
+struct tm* getLocalTime(time_t utcTime); // Vorwärtsdeklaration
 
 namespace ClockEffect {
   void drawDigit(uint8_t *frame, int digit, uint8_t xOffset, uint8_t yOffset) {
@@ -27,7 +28,21 @@ namespace ClockEffect {
 
   inline void draw(uint8_t *frame) {
     time_t now = time(nullptr);
-    struct tm *t = localtime(&now);
+    // Zeitvalidierung: Prüfe ob Zeit plausibel ist
+    if (now < 100000) {
+      // Zeit nicht synchronisiert, zeige nichts oder Fehler
+      return;
+    }
+    struct tm *tm_info = gmtime(&now);
+    if (tm_info) {
+      int year = tm_info->tm_year + 1900;
+      if (year < 2020 || year >= 2100) {
+        // Zeit außerhalb des erwarteten Bereichs
+        return;
+      }
+    }
+    // Verwende getLocalTime() für manuelle Zeitzonenberechnung
+    struct tm *t = getLocalTime(now);
     int h = t ? formatHourForDisplay(t->tm_hour) : 0;
     int m = t ? t->tm_min : 0;
     // Render two digits per row: hours on top, minutes on bottom.

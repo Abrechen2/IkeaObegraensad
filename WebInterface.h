@@ -857,7 +857,7 @@ const char WEB_INTERFACE_HTML[] PROGMEM = R"rawl(
       <div class="status-item">
         <div class="status-label">
           <span>👤</span>
-          <span>Präsenz</span>
+          <span>Präsenz über MQTT</span>
         </div>
         <div id="presenceStatus" class="status-badge badge-neutral">-</div>
       </div>
@@ -965,7 +965,7 @@ const char WEB_INTERFACE_HTML[] PROGMEM = R"rawl(
           <div>
             <label for="tz">Zeitzone</label>
             <select id="tz" aria-label="Zeitzone auswählen">
-              <option value="CET-1CEST-2,M3.5.0/2,M10.5.0/3">Europa/Berlin (CET)</option>
+              <option value="CET-1CEST-2,M3.5.0/02,M10.5.0/03">Europa/Berlin (CET)</option>
               <option value="GMT0BST,M3.5.0/1,M10.5.0">Europa/London (GMT/BST)</option>
               <option value="WET0WEST,M3.5.0/1,M10.5.0">Europa/Lissabon (WET/WEST)</option>
               <option value="EET-2EEST,M3.5.0/3,M10.5.0/4">Europa/Helsinki (EET)</option>
@@ -1310,7 +1310,7 @@ const char WEB_INTERFACE_HTML[] PROGMEM = R"rawl(
       try {
         const data = await fetchJson('/api/status');
 
-        tzSelect.value = data.tz || 'CET-1CEST-2,M3.5.0/2,M10.5.0/3';
+        tzSelect.value = data.tz || 'CET-1CEST-2,M3.5.0/02,M10.5.0/03';
         currentTimezoneEl.textContent = data.tz || '-';
         const formatValue = data.hourFormat ? data.hourFormat : (data.use24HourFormat === false ? '12h' : '24h');
         hourFormatSelect.value = (formatValue && formatValue.startsWith('12')) ? '12' : '24';
