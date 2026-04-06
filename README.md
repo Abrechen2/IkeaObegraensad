@@ -4,8 +4,6 @@ Custom firmware for the **IKEA OBEGRÄNSAD** 16×16 LED matrix lamp, running on 
 
 > Inspired by [ph1p/ikea-led-obegraensad](https://github.com/ph1p/ikea-led-obegraensad) — but rebuilt around the ESP8266/D1 mini with a different effects engine, MQTT command channel, and HA integration.
 
-![Wiring overview](docs/images/Gesamt.jpg)
-
 ---
 
 ## Table of Contents
@@ -84,6 +82,7 @@ The panel exposes a 6-pin header on its lowest internal sub-board: **VCC, CLA, C
 D1 mini soldered to the panel's header — close-up:
 
 ![D1 mini close-up](docs/images/ESP.jpg)
+![Wiring overview](docs/images/Gesamt.jpg)
 
 Panel header pinout:
 
