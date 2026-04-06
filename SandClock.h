@@ -8,7 +8,6 @@
 
 extern bool use24HourFormat;
 uint8_t formatHourForDisplay(uint8_t hour);
-struct tm* getLocalTime(time_t utcTime); // Vorwärtsdeklaration
 
 namespace SandClockEffect {
   struct Grain {
@@ -209,8 +208,7 @@ inline void SandClockEffect::drawStatic(uint8_t *frame) {
     int year = tm_info->tm_year + 1900;
     if (year < 2020 || year >= 2100) return; // Zeit außerhalb des erwarteten Bereichs
   }
-  // Verwende getLocalTime() für manuelle Zeitzonenberechnung
-  struct tm *t = getLocalTime(now);
+  struct tm *t = localtime(&now);
   int h = t ? formatHourForDisplay(t->tm_hour) : 0;
   int m = t ? t->tm_min : 0;
   
@@ -242,8 +240,7 @@ inline void SandClockEffect::draw(uint8_t *frame) {
       return;
     }
   }
-  // Verwende getLocalTime() für manuelle Zeitzonenberechnung
-  struct tm *t = getLocalTime(now);
+  struct tm *t = localtime(&now);
   uint8_t currentMinute = t ? t->tm_min : 0;
 
   // Prüfe ob sich die Minute geändert hat
