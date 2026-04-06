@@ -1400,7 +1400,12 @@ bool isTimeValid(time_t t) {
 }
 
 // Setzt die Zeitzone basierend auf tzString
+// Nutzt configTime(tz, ntp) damit NTP-Sync und TZ atomar zusammen gesetzt werden
+// (sonst löscht configTime() nach NTP-Sync die TZ-Variable wieder).
 void setupTimezone() {
+  const char* s1 = (strlen(ntpServer1) > 0) ? ntpServer1 : "pool.ntp.org";
+  const char* s2 = (strlen(ntpServer2) > 0) ? ntpServer2 : "time.nist.gov";
+  configTime(tzString, s1, s2);
   setenv("TZ", tzString, 1);
   tzset(); // Zeitzone anwenden
   
@@ -1468,11 +1473,11 @@ void setupNTP() {
   for (int i = 0; i < 4; i++) {
     if (strlen(ntpServers[i]) > 0) {
       Serial.printf("[NTP] Versuche Sync mit %s...\n", ntpServers[i]);
-      // WICHTIG: Erst TZ-Variable setzen, DANN configTime aufrufen
-      // ESP8266 benötigt die TZ-Variable VOR configTime()
+      // ESP8266 Arduino-Core: configTime(tz, server) setzt TZ und NTP atomar
+      // und überlebt Sync-Zyklen — zuverlässiger als setenv+configTime getrennt.
+      configTime(tzString, ntpServers[i]);
       setenv("TZ", tzString, 1);
       tzset();
-      configTime(0, 0, ntpServers[i]); // Offset 0 = UTC, Zeitzone wird über TZ-Variable gesetzt
       
       // Warte kurz und prüfe ob Sync erfolgreich
       delay(2000);
@@ -1491,10 +1496,10 @@ void setupNTP() {
   }
   
   if (!syncSuccess) {
-    // Fallback: Verwende beide Server gleichzeitig
+    // Fallback: Verwende beide Server gleichzeitig (mit TZ-String)
+    configTime(tzString, ntp1, ntp2);
     setenv("TZ", tzString, 1);
     tzset();
-    configTime(0, 0, ntp1, ntp2);
   }
 
   Serial.print("Waiting for NTP sync");
