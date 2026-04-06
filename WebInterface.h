@@ -856,13 +856,6 @@ const char WEB_INTERFACE_HTML[] PROGMEM = R"rawl(
       </div>
       <div class="status-item">
         <div class="status-label">
-          <span>👤</span>
-          <span>Präsenz über MQTT</span>
-        </div>
-        <div id="presenceStatus" class="status-badge badge-neutral">-</div>
-      </div>
-      <div class="status-item">
-        <div class="status-label">
           <span>🖥️</span>
           <span>Display</span>
         </div>
@@ -1056,9 +1049,9 @@ const char WEB_INTERFACE_HTML[] PROGMEM = R"rawl(
       </div>
     </div>
 
-    <div class="accordion" role="region" aria-label="MQTT Präsenzmelder">
+    <div class="accordion" role="region" aria-label="MQTT Steuerung">
       <div class="accordion-header" role="button" tabindex="0" aria-expanded="false" aria-controls="mqttContent">
-        <h3>MQTT Präsenzmelder (Aqara)</h3>
+        <h3>MQTT Steuerung</h3>
         <span class="accordion-icon" aria-hidden="true">▼</span>
       </div>
       <div class="accordion-content" id="mqttContent">
@@ -1087,21 +1080,15 @@ const char WEB_INTERFACE_HTML[] PROGMEM = R"rawl(
           </div>
         </div>
         <div style="margin-top: var(--spacing-2);">
-          <label for="mqttTopic">MQTT Topic (Präsenz)</label>
-          <input id="mqttTopic" type="text" placeholder="zigbee2mqtt/aqara_fp2" value="zigbee2mqtt/aqara_fp2" aria-label="MQTT Topic für Präsenz">
-        </div>
-        <div class="range-wrapper" style="margin-top: var(--spacing-2);">
-          <label for="presenceTimeout">Display-Timeout nach Präsenz (Sekunden)</label>
-          <div class="range-control">
-            <input id="presenceTimeout" type="range" min="10" max="600" step="10" value="300" aria-label="Präsenz Timeout">
-            <input id="presenceTimeoutInput" type="number" min="10" max="3600" step="10" value="300" aria-label="Präsenz Timeout numerisch" required>
-          </div>
-          <span class="input-error">Bitte einen Wert zwischen 10 und 3600 Sekunden eingeben</span>
+          <label for="mqttTopic">MQTT Base-Topic</label>
+          <input id="mqttTopic" type="text" placeholder="ikeaclock" value="ikeaclock" aria-label="MQTT Base-Topic">
         </div>
         <button id="saveMqtt" aria-label="MQTT Einstellungen speichern">MQTT Einstellungen speichern</button>
         <p class="caption" style="margin: var(--spacing-2) 0 0 0; line-height: 1.5;">
-          <strong>Hinweis:</strong> Nach dem Speichern wird die MQTT-Verbindung neu aufgebaut. Das Display schaltet sich automatisch aus, wenn keine Präsenz erkannt wird.<br>
-          <strong>Aqara FP2:</strong> Topic ist <code>zigbee2mqtt/[dein_sensor_name]</code> (ohne /presence oder /occupancy). Der Code erkennt JSON automatisch.
+          <strong>Steuerung:</strong> Sende Commands an <code>&lt;baseTopic&gt;/cmd</code>:<br>
+          <code>display:on</code> · <code>display:off</code> · <code>effect:clock</code> · <code>brightness:512</code> · <code>autobrightness:on</code><br>
+          <strong>Status:</strong> Wird als JSON (retained) auf <code>&lt;baseTopic&gt;/state</code> publiziert.<br>
+          <strong>Präsenz:</strong> Muss extern (z.B. in Home Assistant) auf das cmd-Topic gemappt werden.
         </p>
       </div>
     </div>
@@ -1237,11 +1224,8 @@ const char WEB_INTERFACE_HTML[] PROGMEM = R"rawl(
     const mqttUserInput = document.getElementById('mqttUser');
     const mqttPasswordInput = document.getElementById('mqttPassword');
     const mqttTopicInput = document.getElementById('mqttTopic');
-    const presenceTimeoutSlider = document.getElementById('presenceTimeout');
-    const presenceTimeoutInput = document.getElementById('presenceTimeoutInput');
     const saveMqttButton = document.getElementById('saveMqtt');
     const mqttStatusEl = document.getElementById('mqttStatus');
-    const presenceStatusEl = document.getElementById('presenceStatus');
     const displayStatusEl = document.getElementById('displayStatus');
     const otaStatusEl = document.getElementById('otaStatus');
     const ipAddressEl = document.getElementById('ipAddress');
@@ -1342,12 +1326,10 @@ const char WEB_INTERFACE_HTML[] PROGMEM = R"rawl(
         if (data.mqttPort !== undefined) {
           mqttPortInput.value = data.mqttPort;
         }
-        if (data.mqttTopic !== undefined) {
+        if (data.mqttBaseTopic !== undefined) {
+          mqttTopicInput.value = data.mqttBaseTopic;
+        } else if (data.mqttTopic !== undefined) {
           mqttTopicInput.value = data.mqttTopic;
-        }
-        if (data.presenceTimeout !== undefined) {
-          const timeoutSeconds = Math.floor(data.presenceTimeout / 1000);
-          syncSliderInput(presenceTimeoutSlider, presenceTimeoutInput, timeoutSeconds);
         }
       } catch (error) {
         showToast('Settings konnte nicht geladen werden. ' + error.message, 'error');
@@ -1390,11 +1372,6 @@ const char WEB_INTERFACE_HTML[] PROGMEM = R"rawl(
           }
         }
 
-        if (data.presenceDetected !== undefined) {
-          const status = data.presenceDetected ? 'Erkannt' : 'Nicht erkannt';
-          presenceStatusEl.textContent = status;
-          updateStatusBadge(presenceStatusEl, data.presenceDetected ? 'success' : 'neutral', status);
-        }
 
         if (data.displayEnabled !== undefined) {
           const status = data.displayEnabled ? 'An' : 'Aus';
@@ -1527,22 +1504,16 @@ const char WEB_INTERFACE_HTML[] PROGMEM = R"rawl(
         showToast('Bitte einen gültigen Port eingeben.', 'error');
         return;
       }
-      if (!presenceTimeoutInput.validity.valid) {
-        showToast('Bitte einen gültigen Timeout-Wert eingeben.', 'error');
-        return;
-      }
-      
+
       try {
         setButtonLoading(saveMqttButton, true);
-        const timeoutMs = parseInt(presenceTimeoutInput.value) * 1000;
         const params = new URLSearchParams({
           enabled: mqttEnabledCheckbox.checked ? 'true' : 'false',
           server: mqttServerInput.value,
           port: mqttPortInput.value,
           user: mqttUserInput.value,
           password: mqttPasswordInput.value,
-          topic: mqttTopicInput.value,
-          timeout: timeoutMs.toString()
+          topic: mqttTopicInput.value
         });
         await fetch('/api/setMqtt?' + params.toString());
         showToast('MQTT Einstellungen gespeichert. Verbindung wird neu aufgebaut...', 'info');
@@ -1663,19 +1634,6 @@ const char WEB_INTERFACE_HTML[] PROGMEM = R"rawl(
     mqttPortInput.addEventListener('blur', () => editingFields.delete('mqttPort'));
     mqttTopicInput.addEventListener('focus', () => editingFields.add('mqttTopic'));
     mqttTopicInput.addEventListener('blur', () => editingFields.delete('mqttTopic'));
-
-    presenceTimeoutSlider.addEventListener('input', event => {
-      presenceTimeoutInput.value = event.target.value;
-    });
-    presenceTimeoutInput.addEventListener('input', event => {
-      const value = Math.max(10, Math.min(3600, parseInt(event.target.value) || 300));
-      presenceTimeoutSlider.value = value;
-      presenceTimeoutInput.value = value;
-    });
-    presenceTimeoutSlider.addEventListener('focus', () => editingFields.add('presenceTimeout'));
-    presenceTimeoutSlider.addEventListener('blur', () => editingFields.delete('presenceTimeout'));
-    presenceTimeoutInput.addEventListener('focus', () => editingFields.add('presenceTimeout'));
-    presenceTimeoutInput.addEventListener('blur', () => editingFields.delete('presenceTimeout'));
 
     saveMqttButton.addEventListener('click', () => {
       saveMqtt();

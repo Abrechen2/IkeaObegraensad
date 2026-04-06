@@ -19,7 +19,7 @@ extern "C" {
 //#define DEBUG_LOGGING_ENABLED
 
 // Firmware-Version
-#define FIRMWARE_VERSION "1.5.7"
+#define FIRMWARE_VERSION "1.6.0"
 
 #include "Matrix.h"
 #include "Effect.h"
@@ -55,7 +55,8 @@ const size_t INPUT_NTP_SERVER_MAX = 128;
 const size_t INPUT_RESET_REASON_MAX = 64;
 const size_t INPUT_OPERATION_MAX = 64;
 
-// MQTT Configuration for Aqara Presence Sensor
+// MQTT: Generischer Steuer-/Status-Kanal (keine Präsenz-Logik mehr)
+// Subscribe auf <baseTopic>/cmd, Publish auf <baseTopic>/state
 WiFiClient espClient;
 PubSubClient mqttClient(espClient);
 char mqttServer[INPUT_MQTT_SERVER_MAX] = "";  // MQTT Broker IP (wird über Web-UI konfiguriert, kein Default)
@@ -63,14 +64,10 @@ const uint16_t MQTT_PORT_DEFAULT = 1883; // Standard MQTT Port
 uint16_t mqttPort = MQTT_PORT_DEFAULT;
 char mqttUser[INPUT_MQTT_USER_MAX] = "";    // Optional
 char mqttPassword[INPUT_MQTT_PASSWORD_MAX] = ""; // Optional
-char mqttPresenceTopic[INPUT_MQTT_TOPIC_MAX] = "Sonstige/Präsenz_Wz/Anwesenheit"; // Topic für Präsenzmelder (FP2 sendet JSON an Haupt-Topic)
+char mqttBaseTopic[INPUT_MQTT_TOPIC_MAX] = "ikeaclock"; // Basis-Topic für cmd/state
 bool mqttEnabled = false;
-bool presenceDetected = false;
-unsigned long lastPresenceTime = 0;
-const uint32_t PRESENCE_TIMEOUT_DEFAULT = 300000; // 5 Minuten in ms (Display bleibt 5 Min an nach letzter Erkennung)
-uint32_t presenceTimeout = PRESENCE_TIMEOUT_DEFAULT;
-bool displayEnabled = true; // Display-Status (wird durch Präsenz gesteuert)
-bool haDisplayControlled = false; // Flag: Wird Display von HA gesteuert? (deaktiviert MQTT-Präsenz)
+bool mqttStateDirty = false; // Markierung: State-Publish ausstehend
+bool displayEnabled = true; // Display-Status (via API/MQTT/Web steuerbar)
 
 // Restart-Counter für Diagnose
 uint32_t restartCount = 0;
@@ -355,8 +352,13 @@ void loadBrightnessFromStorage() {
     EEPROM.get(EEPROM_MQTT_PORT_ADDR, mqttPort);
     readStringFromEEPROM(EEPROM_MQTT_USER_ADDR, mqttUser, sizeof(mqttUser));
     readStringFromEEPROM(EEPROM_MQTT_PASSWORD_ADDR, mqttPassword, sizeof(mqttPassword));
-    readStringFromEEPROM(EEPROM_MQTT_TOPIC_ADDR, mqttPresenceTopic, sizeof(mqttPresenceTopic));
-    EEPROM.get(EEPROM_PRESENCE_TIMEOUT_ADDR, presenceTimeout);
+    readStringFromEEPROM(EEPROM_MQTT_TOPIC_ADDR, mqttBaseTopic, sizeof(mqttBaseTopic));
+    // EEPROM_PRESENCE_TIMEOUT_ADDR ist legacy und wird ignoriert (Layout bleibt für Kompatibilität)
+    // Migration: Alte Präsenz-Topics durch Default ersetzen
+    if (strlen(mqttBaseTopic) == 0 || strchr(mqttBaseTopic, '/') != nullptr) {
+      strncpy(mqttBaseTopic, "ikeaclock", sizeof(mqttBaseTopic) - 1);
+      mqttBaseTopic[sizeof(mqttBaseTopic) - 1] = '\0';
+    }
     
     // NTP-Server laden
     char loadedNtp1[EEPROM_NTP_SERVER_LEN + 1];
@@ -426,7 +428,6 @@ void loadBrightnessFromStorage() {
     sensorMin = constrain(sensorMin, 0, PWM_MAX);
     sensorMax = constrain(sensorMax, 0, PWM_MAX);
     if (mqttPort == 0 || mqttPort > 65535) mqttPort = MQTT_PORT_DEFAULT;
-    if (presenceTimeout == 0) presenceTimeout = PRESENCE_TIMEOUT_DEFAULT;
     
     Serial.println("EEPROM data loaded and validated successfully");
   } else {
@@ -443,8 +444,8 @@ void loadBrightnessFromStorage() {
     mqttPort = MQTT_PORT_DEFAULT;
     mqttUser[0] = '\0';
     mqttPassword[0] = '\0';
-    mqttPresenceTopic[0] = '\0';
-    presenceTimeout = PRESENCE_TIMEOUT_DEFAULT;
+    strncpy(mqttBaseTopic, "ikeaclock", sizeof(mqttBaseTopic) - 1);
+    mqttBaseTopic[sizeof(mqttBaseTopic) - 1] = '\0';
     strncpy(ntpServer1, "pool.ntp.org", sizeof(ntpServer1) - 1);
     ntpServer1[sizeof(ntpServer1) - 1] = '\0';
     strncpy(ntpServer2, "time.nist.gov", sizeof(ntpServer2) - 1);
@@ -490,8 +491,7 @@ void persistMqttToStorage() {
   EEPROM.put(EEPROM_MQTT_PORT_ADDR, mqttPort);
   writeStringToEEPROM(EEPROM_MQTT_USER_ADDR, mqttUser, EEPROM_MQTT_USER_LEN + 1);
   writeStringToEEPROM(EEPROM_MQTT_PASSWORD_ADDR, mqttPassword, EEPROM_MQTT_PASSWORD_LEN + 1);
-  writeStringToEEPROM(EEPROM_MQTT_TOPIC_ADDR, mqttPresenceTopic, EEPROM_MQTT_TOPIC_LEN + 1);
-  EEPROM.put(EEPROM_PRESENCE_TIMEOUT_ADDR, presenceTimeout);
+  writeStringToEEPROM(EEPROM_MQTT_TOPIC_ADDR, mqttBaseTopic, EEPROM_MQTT_TOPIC_LEN + 1);
   
   // Checksumme berechnen und speichern
   uint16_t checksum = calculateEEPROMChecksum();
@@ -700,79 +700,116 @@ void updateAutoBrightness() {
   startLightSensorSampling();
 }
 
-// MQTT Callback für eingehende Nachrichten
+// Forward declaration
+bool applyEffect(uint8_t idx);
+
+// Hilfsfunktion: Effekt-Index per Name finden
+int8_t findEffectIndexByName(const char* name) {
+  for (uint8_t i = 0; i < effectCount; i++) {
+    if (strcasecmp(effects[i]->name, name) == 0) return (int8_t)i;
+  }
+  return -1;
+}
+
+// MQTT Callback für eingehende Steuerbefehle
+// Erwartetes Topic: <baseTopic>/cmd
+// Payload-Format: "key:value"
+//   display:on | display:off
+//   effect:<name>
+//   brightness:<0-1023>
+//   autobrightness:on | autobrightness:off
 void mqttCallback(char* topic, byte* payload, unsigned int length) {
-  // Payload zu String konvertieren (optimiert mit reserve)
   String message = "";
-  message.reserve(length + 1); // Speicher vorreservieren
+  message.reserve(length + 1);
   for (unsigned int i = 0; i < length; i++) {
     message += (char)payload[i];
   }
+  message.trim();
 
-  Serial.printf("MQTT Message received on topic %s: %s\n", topic, message.c_str());
+  Serial.printf("MQTT cmd on %s: %s\n", topic, message.c_str());
 
-  // Präsenz-Status auswerten
-  if (strcmp(topic, mqttPresenceTopic) == 0) {
-    bool newPresence = false;
-
-    // Verschiedene Payload-Formate unterstützen:
-    // 1. Einfache Werte: "true", "false", "1", "0", "occupied"
-    // 2. JSON (Aqara FP2): {"presence":true} oder {"occupancy":true}
-
-    message.toLowerCase();
-    message.trim();
-
-    // Einfache Werte prüfen
-    if (message == "true" || message == "1" || message == "occupied" || message == "on") {
-      newPresence = true;
-    }
-    else if (message == "false" || message == "0" || message == "unoccupied" || message == "off") {
-      newPresence = false;
-    }
-    // JSON-Parsing (einfach, ohne Bibliothek)
-    else if (message.indexOf("\"presence\"") >= 0 || message.indexOf("\"occupancy\"") >= 0) {
-      // Suche nach "presence":true oder "occupancy":true in JSON
-      int truePos = message.indexOf(":true");
-      int falsePos = message.indexOf(":false");
-
-      if (truePos > 0) {
-        // Prüfe ob "true" nach "presence" oder "occupancy" kommt
-        int presencePos = message.indexOf("\"presence\"");
-        int occupancyPos = message.indexOf("\"occupancy\"");
-
-        if ((presencePos >= 0 && truePos > presencePos) ||
-            (occupancyPos >= 0 && truePos > occupancyPos)) {
-          newPresence = true;
-        }
-      }
-    }
-
-    if (newPresence != presenceDetected) {
-      presenceDetected = newPresence;
-      Serial.printf("Presence changed: %s\n", presenceDetected ? "DETECTED" : "NOT DETECTED");
-    }
-
-    if (presenceDetected) {
-      lastPresenceTime = millis();
-      // Nur Display einschalten wenn HA nicht aktiv steuert
-      if (!haDisplayControlled && !displayEnabled) {
-        displayEnabled = true;
-        Serial.println("Display ENABLED by presence detection");
-        // Display einschalten
-        if (autoBrightnessEnabled) {
-          // Auto-Brightness wird die Helligkeit setzen
-        } else {
-          analogWrite(PIN_ENABLE, PWM_MAX - brightness);
-        }
-      }
-    } else {
-      // Präsenz nicht mehr erkannt - nur Timeout setzen, Display wird von updatePresenceTimeout() ausgeschaltet
-      // Aber nur wenn HA nicht steuert
-      if (!haDisplayControlled) {
-        lastPresenceTime = millis(); // Reset Timer
-      }
-    }
+  int colon = message.indexOf(':');
+  if (colon < 0) {
+    Serial.println("MQTT cmd: missing ':' separator, ignored");
+    return;
   }
+  String key = message.substring(0, colon);
+  String value = message.substring(colon + 1);
+  key.toLowerCase();
+  key.trim();
+  value.trim();
+  String valueLower = value;
+  valueLower.toLowerCase();
+
+  bool changed = false;
+
+  if (key == "display") {
+    bool newState = (valueLower == "on" || valueLower == "true" || valueLower == "1");
+    if (newState != displayEnabled) {
+      displayEnabled = newState;
+      if (displayEnabled) {
+        analogWrite(PIN_ENABLE, PWM_MAX - brightness);
+      } else {
+        analogWrite(PIN_ENABLE, PWM_MAX);
+      }
+      Serial.printf("MQTT: display -> %s\n", displayEnabled ? "ON" : "OFF");
+      changed = true;
+    }
+  } else if (key == "effect") {
+    int8_t idx = findEffectIndexByName(value.c_str());
+    if (idx >= 0) {
+      applyEffect((uint8_t)idx);
+      Serial.printf("MQTT: effect -> %s\n", currentEffect->name);
+      changed = true;
+    } else {
+      Serial.printf("MQTT: unknown effect '%s'\n", value.c_str());
+    }
+  } else if (key == "brightness") {
+    int b = value.toInt();
+    if (b >= 0 && b <= PWM_MAX) {
+      brightness = (uint16_t)b;
+      analogWrite(PIN_ENABLE, PWM_MAX - brightness);
+      if (autoBrightnessEnabled) {
+        autoBrightnessEnabled = false;
+        Serial.println("Auto-Brightness disabled (manual MQTT brightness)");
+      }
+      persistBrightnessToStorage();
+      Serial.printf("MQTT: brightness -> %d\n", brightness);
+      changed = true;
+    }
+  } else if (key == "autobrightness") {
+    bool newState = (valueLower == "on" || valueLower == "true" || valueLower == "1");
+    if (newState != autoBrightnessEnabled) {
+      autoBrightnessEnabled = newState;
+      persistBrightnessToStorage();
+      Serial.printf("MQTT: autobrightness -> %s\n", autoBrightnessEnabled ? "ON" : "OFF");
+      changed = true;
+    }
+  } else {
+    Serial.printf("MQTT: unknown key '%s'\n", key.c_str());
+  }
+
+  if (changed) {
+    mqttStateDirty = true;
+  }
+}
+
+// State als JSON auf <baseTopic>/state publishen (retained)
+void publishMqttState() {
+  if (!mqttEnabled || !mqttClient.connected() || strlen(mqttBaseTopic) == 0) {
+    return;
+  }
+  char stateTopic[INPUT_MQTT_TOPIC_MAX + 8];
+  snprintf(stateTopic, sizeof(stateTopic), "%s/state", mqttBaseTopic);
+  char payload[192];
+  snprintf(payload, sizeof(payload),
+    "{\"display\":%s,\"effect\":\"%s\",\"brightness\":%d,\"autoBrightness\":%s}",
+    displayEnabled ? "true" : "false",
+    currentEffect ? currentEffect->name : "",
+    brightness,
+    autoBrightnessEnabled ? "true" : "false");
+  mqttClient.publish(stateTopic, payload, true);
+  mqttStateDirty = false;
 }
 
 // MQTT Verbindung aufbauen/wiederherstellen
@@ -844,11 +881,15 @@ bool reconnectMQTT() {
     Serial.println("MQTT connected!");
     // Backoff zurücksetzen bei erfolgreicher Verbindung
     mqttReconnectBackoff = 1000;
-    // Topic abonnieren
-    if (strlen(mqttPresenceTopic) > 0) {
-      mqttClient.subscribe(mqttPresenceTopic);
-      Serial.printf("Subscribed to topic: %s\n", mqttPresenceTopic);
+    // Command-Topic abonnieren: <baseTopic>/cmd
+    if (strlen(mqttBaseTopic) > 0) {
+      char cmdTopic[INPUT_MQTT_TOPIC_MAX + 8];
+      snprintf(cmdTopic, sizeof(cmdTopic), "%s/cmd", mqttBaseTopic);
+      mqttClient.subscribe(cmdTopic);
+      Serial.printf("Subscribed to: %s\n", cmdTopic);
     }
+    // Initialen State publishen
+    mqttStateDirty = true;
 #ifdef DEBUG_LOGGING_ENABLED
     if (SPIFFS.exists("/")) {
       File logFile = SPIFFS.open("/debug.log", "a");
@@ -878,34 +919,6 @@ bool reconnectMQTT() {
     }
 #endif
     return false;
-  }
-}
-
-// Präsenz-Timeout prüfen und Display entsprechend steuern
-void updatePresenceTimeout() {
-  // Wenn HA das Display steuert, MQTT-Präsenz-Logik komplett deaktivieren
-  if (haDisplayControlled) {
-    return;
-  }
-
-  if (!mqttEnabled) {
-    return;
-  }
-
-  // Wenn Präsenz erkannt: Display ist bereits an, nichts zu tun
-  if (presenceDetected) {
-    return;
-  }
-
-  // Keine Präsenz: Prüfe ob Timeout abgelaufen und Display noch an
-  unsigned long timeSincePresence = timeDiff(millis(), lastPresenceTime);
-
-  if (displayEnabled && timeSincePresence > presenceTimeout) {
-    displayEnabled = false;
-    Serial.printf("Display DISABLED after %lu ms timeout (no presence)\n", timeSincePresence);
-
-    // Display ausschalten (Helligkeit auf 0)
-    analogWrite(PIN_ENABLE, 1023);
   }
 }
 
@@ -939,7 +952,7 @@ void handleStatus() {
     return;
   }
   time_t now = time(nullptr);
-  struct tm *t = getLocalTime(now);
+  struct tm *t = localtime(&now);
   char buf[16];
   int displayHour = t ? formatHourForDisplay(t->tm_hour) : 0;
   const char* suffix = (!use24HourFormat && t) ? (t->tm_hour >= 12 ? " PM" : " AM") : "";
@@ -996,8 +1009,8 @@ void handleStatus() {
     "\"autoBrightnessMin\":%d,\"autoBrightnessMax\":%d,\"sensorMin\":%d,\"sensorMax\":%d,"
     "\"autoBrightnessSensorMin\":%d,\"autoBrightnessSensorMax\":%d,\"sensorValue\":%d,"
     "\"mqttEnabled\":%s,\"mqttConnected\":%s,\"mqttServer\":\"%s\","
-    "\"mqttPort\":%d,\"mqttTopic\":\"%s\",\"presenceDetected\":%s,\"presence\":%s,"
-    "\"displayEnabled\":%s,\"haDisplayControlled\":%s,\"presenceTimeout\":%lu,"
+    "\"mqttPort\":%d,\"mqttBaseTopic\":\"%s\",\"mqttTopic\":\"%s\","
+    "\"displayEnabled\":%s,"
     "\"availableEffects\":%s,"
     "\"otaEnabled\":%s,\"otaHostname\":\"%s\",\"ipAddress\":\"%s\","
     "\"firmwareVersion\":\"%s\",\"version\":\"%s\","
@@ -1009,10 +1022,8 @@ void handleStatus() {
     minBrightness, maxBrightness, sensorMin, sensorMax,
     sensorMin, sensorMax, sensorValue,
     mqttEnabled ? "true" : "false", mqttClient.connected() ? "true" : "false",
-    mqttServer, mqttPort, mqttPresenceTopic,
-    presenceDetected ? "true" : "false", presenceDetected ? "true" : "false",
+    mqttServer, mqttPort, mqttBaseTopic, mqttBaseTopic,
     displayEnabled ? "true" : "false",
-    haDisplayControlled ? "true" : "false", presenceTimeout,
     effectList.c_str(),
     (WiFi.status() == WL_CONNECTED) ? "true" : "false", hostname, ipAddress.c_str(),
     FIRMWARE_VERSION, FIRMWARE_VERSION,
@@ -1030,9 +1041,6 @@ void handleStatus() {
   server.send(200, "application/json", json);
 }
 
-// Vorwärtsdeklarationen
-void setupTimezone(const char* server1 = NULL, const char* server2 = NULL);
-
 void handleSetTimezone() {
   if (!checkRateLimit()) {
     server.send(429, "application/json", "{\"error\":\"Too many requests\"}");
@@ -1047,7 +1055,7 @@ void handleSetTimezone() {
     persistBrightnessToStorage(); // Im EEPROM speichern
     // Debug: Neue Zeit nach Zeitzone-Änderung
     time_t now = time(nullptr);
-    struct tm *local = getLocalTime(now);
+    struct tm *local = localtime(&now);
     if (local) {
       Serial.printf("Timezone changed to: %s, Local time: %02d:%02d:%02d\n",
                     tzString, local->tm_hour, local->tm_min, local->tm_sec);
@@ -1109,6 +1117,7 @@ void handleSetBrightness() {
     }
 
     persistBrightnessToStorage();
+    mqttStateDirty = true;
     char json[BUFFER_SIZE_JSON_SMALL / 2];
     snprintf(json, sizeof(json), "{\"brightness\":%d}", brightness);
     server.send(200, "application/json", json);
@@ -1153,6 +1162,7 @@ void handleSetAutoBrightness() {
   }
 
   persistBrightnessToStorage();
+  mqttStateDirty = true;
 
   // JSON-Response erstellen
     char json[BUFFER_SIZE_JSON_MEDIUM];
@@ -1169,22 +1179,7 @@ void handleSetMqtt() {
   // MQTT-Konfiguration setzen
   if (server.hasArg("enabled")) {
     String val = server.arg("enabled");
-    bool newMqttEnabled = (val == "true" || val == "1");
-
-    // Wenn MQTT deaktiviert wird, Display immer einschalten
-    if (mqttEnabled && !newMqttEnabled) {
-      displayEnabled = true;
-      analogWrite(PIN_ENABLE, PWM_MAX - brightness);
-      Serial.println("MQTT disabled, display forced ON");
-    }
-
-    // Wenn MQTT aktiviert wird, HA-Steuerung zurücksetzen (MQTT hat dann Vorrang)
-    if (!mqttEnabled && newMqttEnabled) {
-      haDisplayControlled = false;
-      Serial.println("MQTT enabled, HA display control reset");
-    }
-
-    mqttEnabled = newMqttEnabled;
+    mqttEnabled = (val == "true" || val == "1");
   }
   if (server.hasArg("server")) {
     String serverArg = server.arg("server");
@@ -1224,10 +1219,7 @@ void handleSetMqtt() {
       server.send(400, "application/json", "{\"error\":\"MQTT topic string too long\"}");
       return;
     }
-    copyServerArgToBuffer(topicArg, mqttPresenceTopic, sizeof(mqttPresenceTopic));
-  }
-  if (server.hasArg("timeout")) {
-    presenceTimeout = constrain(server.arg("timeout").toInt(), 1000, 3600000); // 1s bis 1h
+    copyServerArgToBuffer(topicArg, mqttBaseTopic, sizeof(mqttBaseTopic));
   }
 
   persistMqttToStorage();
@@ -1241,8 +1233,8 @@ void handleSetMqtt() {
   }
 
     char json[BUFFER_SIZE_JSON_LARGE];
-  snprintf(json, sizeof(json), "{\"mqttEnabled\":%s,\"mqttServer\":\"%s\",\"mqttPort\":%d,\"mqttTopic\":\"%s\",\"presenceTimeout\":%lu}",
-           mqttEnabled ? "true" : "false", mqttServer, mqttPort, mqttPresenceTopic, presenceTimeout);
+  snprintf(json, sizeof(json), "{\"mqttEnabled\":%s,\"mqttServer\":\"%s\",\"mqttPort\":%d,\"mqttBaseTopic\":\"%s\"}",
+           mqttEnabled ? "true" : "false", mqttServer, mqttPort, mqttBaseTopic);
   server.send(200, "application/json", json);
 }
 
@@ -1269,30 +1261,22 @@ void handleSetDisplay() {
     String val = server.arg("enabled");
     val.toLowerCase();
     val.trim();
-    bool newState = (val == "true" || val == "1");
-    
-    displayEnabled = newState;
-    haDisplayControlled = true; // Aktiviert HA-Steuerung (deaktiviert MQTT-Präsenz)
-    
+    displayEnabled = (val == "true" || val == "1");
+
     if (displayEnabled) {
-      // Display einschalten
-      if (autoBrightnessEnabled) {
-        // Auto-Brightness wird die Helligkeit automatisch anpassen
-        Serial.println("Display ENABLED via HA (auto-brightness active)");
-      } else {
+      if (!autoBrightnessEnabled) {
         analogWrite(PIN_ENABLE, PWM_MAX - brightness);
-        Serial.printf("Display ENABLED via HA (brightness: %d)\n", brightness);
       }
+      Serial.printf("Display ENABLED via API (brightness: %d)\n", brightness);
     } else {
-      // Display ausschalten (Helligkeit auf 0)
       analogWrite(PIN_ENABLE, PWM_MAX);
-      Serial.println("Display DISABLED via HA");
+      Serial.println("Display DISABLED via API");
     }
-    
-    Serial.println("MQTT presence control DISABLED (HA active)");
-    
+
+    mqttStateDirty = true;
+
     char json[BUFFER_SIZE_JSON_SMALL];
-    snprintf(json, sizeof(json), "{\"displayEnabled\":%s,\"haDisplayControlled\":true}",
+    snprintf(json, sizeof(json), "{\"displayEnabled\":%s}",
              displayEnabled ? "true" : "false");
     server.send(200, "application/json", json);
   } else {
@@ -1317,6 +1301,7 @@ void selectEffect(uint8_t idx) {
     return;
   }
   bool ok = applyEffect(idx);
+  if (ok) mqttStateDirty = true;
   WiFiClient client = server.client();
   if (!client || !client.connected()) {
     Serial.printf("selectEffect(%u) called without active HTTP client (ok=%d)\n", idx, ok);
@@ -1414,128 +1399,25 @@ bool isTimeValid(time_t t) {
   return (year >= 2020 && year < 2100);
 }
 
-// Berechnet den Zeitzonen-Offset in Sekunden für Europa/Berlin (UTC+1 im Winter, UTC+2 im Sommer)
-// Berücksichtigt DST-Regeln: Letzter Sonntag im März 02:00 lokaler Zeit (01:00 UTC) -> UTC+2
-//                           Letzter Sonntag im Oktober 03:00 lokaler Zeit (01:00 UTC) -> UTC+1
-// Input: UTC-Zeit (time_t)
-// Returns: Offset in Sekunden (3600 für CET, 7200 für CEST)
-int getTimezoneOffset(time_t utcTime) {
-  struct tm *utc = gmtime(&utcTime);
-  if (!utc) return 3600; // Default: CET (UTC+1)
+// Setzt die Zeitzone basierend auf tzString
+void setupTimezone() {
+  setenv("TZ", tzString, 1);
+  tzset(); // Zeitzone anwenden
   
-  int year = utc->tm_year + 1900;
-  int month = utc->tm_mon + 1; // tm_mon ist 0-11
-  int day = utc->tm_mday;
-  int hour = utc->tm_hour;
-  
-  // April bis September: immer DST (CEST, UTC+2)
-  if (month >= 4 && month <= 9) {
-    return 7200; // CEST
-  }
-  
-  // November bis Februar: nie DST (CET, UTC+1)
-  if (month == 11 || month == 12 || month == 1 || month == 2) {
-    return 3600; // CET
-  }
-  
-  // März: DST beginnt am letzten Sonntag um 02:00 Uhr lokaler Zeit = 01:00 UTC
-  // Vereinfachte Berechnung: Letzter Sonntag ist zwischen 25-31
-  // Wir iterieren rückwärts vom 31. März und finden den letzten Sonntag
-  if (month == 3) {
-    int lastSunday = 25; // Minimum
-    // Iteriere rückwärts vom 31. März
-    for (int d = 31; d >= 25; d--) {
-      // Berechne time_t für Tag d, 01:00 UTC
-      int daysDiff = d - day;
-      time_t testTime = utcTime + (daysDiff * 86400);
-      // Setze auf 01:00 UTC
-      testTime = testTime - (utc->tm_hour * 3600) - (utc->tm_min * 60) - utc->tm_sec + 3600;
-      struct tm *testTm = gmtime(&testTime);
-      if (testTm && testTm->tm_mon == 2 && testTm->tm_mday == d && testTm->tm_wday == 0) {
-        lastSunday = d;
-        break;
-      }
-    }
-    // DST aktiv wenn nach letztem Sonntag, oder am letzten Sonntag nach 01:00 UTC
-    if (day > lastSunday || (day == lastSunday && hour >= 1)) {
-      return 7200; // CEST
-    }
-    return 3600; // CET
-  }
-  
-  // Oktober: DST endet am letzten Sonntag um 03:00 Uhr lokaler Zeit = 01:00 UTC
-  if (month == 10) {
-    int lastSunday = 25;
-    for (int d = 31; d >= 25; d--) {
-      int daysDiff = d - day;
-      time_t testTime = utcTime + (daysDiff * 86400);
-      testTime = testTime - (utc->tm_hour * 3600) - (utc->tm_min * 60) - utc->tm_sec + 3600;
-      struct tm *testTm = gmtime(&testTime);
-      if (testTm && testTm->tm_mon == 9 && testTm->tm_mday == d && testTm->tm_wday == 0) {
-        lastSunday = d;
-        break;
-      }
-    }
-    // DST aktiv wenn vor letztem Sonntag, oder am letzten Sonntag vor 01:00 UTC
-    if (day < lastSunday || (day == lastSunday && hour < 1)) {
-      return 7200; // CEST
-    }
-    return 3600; // CET
-  }
-  
-  return 3600; // Default: CET
-}
-
-// Berechnet ob DST aktiv ist (für Rückwärtskompatibilität)
-bool isDST(time_t utcTime) {
-  return getTimezoneOffset(utcTime) == 7200;
-}
-
-// Konvertiert UTC-Zeit zu lokaler Zeit (Europa/Berlin)
-// Input: UTC-Zeit (time_t) - time(nullptr) liefert UTC wenn configTime(0,0,...) verwendet wurde
-// Output: struct tm mit lokaler Zeit (statischer Buffer, bei nächstem Aufruf überschrieben)
-struct tm* getLocalTime(time_t utcTime) {
-  static struct tm localTm;
-  int offset = getTimezoneOffset(utcTime);
-  time_t localTime = utcTime + offset;
-  struct tm *result = gmtime(&localTime);
-  if (result) {
-    localTm = *result;
-    return &localTm;
-  }
-  return nullptr;
-}
-
-// Setzt NTP-Server (nur UTC-Basis, keine Zeitzone)
-// server1 und server2 können NULL sein, dann werden die aktuellen NTP-Server beibehalten
-void setupTimezone(const char* server1, const char* server2) {
-  // WICHTIG: configTime() immer mit Offset 0 aufrufen (UTC-Basis)
-  // Zeitzone wird manuell über getLocalTime() berechnet
-  if (server1 && server2) {
-    configTime(0, 0, server1, server2);
-  } else if (server1) {
-    configTime(0, 0, server1, NULL);
-  } else {
-    // Keine Server angegeben - verwende globale NTP-Server
-    configTime(0, 0, ntpServer1, strlen(ntpServer2) > 0 ? ntpServer2 : NULL);
-  }
-  
-  // Debug: Zeitzone und Zeit ausgeben (nur wenn Zeit synchronisiert)
+  // Debug: Zeitzone und Zeit ausgeben (nur wenn Zeit bereits synchronisiert)
   time_t now = time(nullptr);
-  if (now >= 100000) {
-    int offset = getTimezoneOffset(now);
+  if (now > 100000) {
     struct tm *utc = gmtime(&now);
-    struct tm *local = getLocalTime(now);
+    struct tm *local = localtime(&now);
     if (utc && local) {
-      Serial.printf("[TIMEZONE] Offset: %d Sekunden (%d Stunden, DST: %s)\n", 
-                    offset, offset / 3600, offset == 7200 ? "aktiv" : "inaktiv");
+      Serial.printf("[TIMEZONE] TZ set to: %s\n", tzString);
       Serial.printf("[TIMEZONE] UTC:   %04d-%02d-%02d %02d:%02d:%02d\n",
                     utc->tm_year + 1900, utc->tm_mon + 1, utc->tm_mday,
                     utc->tm_hour, utc->tm_min, utc->tm_sec);
       Serial.printf("[TIMEZONE] Local: %04d-%02d-%02d %02d:%02d:%02d (diff: %d hours)\n",
                     local->tm_year + 1900, local->tm_mon + 1, local->tm_mday,
-                    local->tm_hour, local->tm_min, local->tm_sec, offset / 3600);
-      Serial.println("[TIMEZONE] Zeitzone manuell berechnet (UTC-Basis)");
+                    local->tm_hour, local->tm_min, local->tm_sec,
+                    local->tm_hour - utc->tm_hour);
     }
   }
 }
@@ -1586,8 +1468,11 @@ void setupNTP() {
   for (int i = 0; i < 4; i++) {
     if (strlen(ntpServers[i]) > 0) {
       Serial.printf("[NTP] Versuche Sync mit %s...\n", ntpServers[i]);
-      // Verwende configTime() mit Offset 0 (UTC) - Zeitzone wird später in setupTimezone() gesetzt
-      configTime(0, 0, ntpServers[i]);
+      // WICHTIG: Erst TZ-Variable setzen, DANN configTime aufrufen
+      // ESP8266 benötigt die TZ-Variable VOR configTime()
+      setenv("TZ", tzString, 1);
+      tzset();
+      configTime(0, 0, ntpServers[i]); // Offset 0 = UTC, Zeitzone wird über TZ-Variable gesetzt
       
       // Warte kurz und prüfe ob Sync erfolgreich
       delay(2000);
@@ -1607,11 +1492,10 @@ void setupNTP() {
   
   if (!syncSuccess) {
     // Fallback: Verwende beide Server gleichzeitig
+    setenv("TZ", tzString, 1);
+    tzset();
     configTime(0, 0, ntp1, ntp2);
   }
-  
-  // Zeitzone NACH configTime() setzen (mit expliziten Offsets)
-  setupTimezone();
 
   Serial.print("Waiting for NTP sync");
   int attempts = 0;
@@ -1629,22 +1513,34 @@ void setupNTP() {
     Serial.println("\nNTP sync successful!");
     
     // Zeitzone ERNEUT setzen nach NTP-Sync (wichtig!)
-    setupTimezone();
+    // configTime() kann die TZ-Variable überschreiben, daher setzen wir sie explizit erneut
+    // WICHTIG: Mehrfach setzen, da ESP8266 manchmal mehrere Versuche benötigt
+    for (int retry = 0; retry < 3; retry++) {
+      setenv("TZ", tzString, 1);
+      tzset();
+      delay(100); // Kurze Pause zwischen Versuchen
+      yield();
+    }
     
     // Debug: UTC und lokale Zeit ausgeben
-    delay(500); // Warte kurz, damit configTime() wirksam wird
     time_t now = time(nullptr);
+    delay(500); // Warte kurz, damit tzset() wirksam wird
     struct tm *utc = gmtime(&now);
-    struct tm *local = getLocalTime(now);
+    struct tm *local = localtime(&now);
     if (utc && local) {
-      int offset = getTimezoneOffset(now);
       Serial.printf("[NTP] UTC time:   %04d-%02d-%02d %02d:%02d:%02d\n",
                     utc->tm_year + 1900, utc->tm_mon + 1, utc->tm_mday,
                     utc->tm_hour, utc->tm_min, utc->tm_sec);
-      Serial.printf("[NTP] Local time: %04d-%02d-%02d %02d:%02d:%02d (offset: %d hours, DST: %s)\n",
+      Serial.printf("[NTP] Local time: %04d-%02d-%02d %02d:%02d:%02d (TZ: %s, diff: %d hours)\n",
                     local->tm_year + 1900, local->tm_mon + 1, local->tm_mday,
-                    local->tm_hour, local->tm_min, local->tm_sec, offset / 3600,
-                    offset == 7200 ? "aktiv" : "inaktiv");
+                    local->tm_hour, local->tm_min, local->tm_sec, tzString,
+                    local->tm_hour - utc->tm_hour);
+      
+      // Warnung wenn Zeitzone nicht angewendet wird
+      if (local->tm_hour == utc->tm_hour && local->tm_min == utc->tm_min) {
+        Serial.println("[WARNING] Zeitzone wird nicht angewendet! TZ-String möglicherweise fehlerhaft.");
+        Serial.printf("[WARNING] Erwartete Differenz: 1 Stunde (Winter) oder 2 Stunden (Sommer)\n");
+      }
     }
   }
 }
@@ -1926,7 +1822,7 @@ void setup() {
       "\"minBrightness\":%d,\"maxBrightness\":%d,"
       "\"sensorMin\":%d,\"sensorMax\":%d,"
       "\"mqttEnabled\":%s,\"mqttServer\":\"%s\",\"mqttPort\":%d,"
-      "\"mqttUser\":\"%s\",\"mqttTopic\":\"%s\",\"presenceTimeout\":%lu,"
+      "\"mqttUser\":\"%s\",\"mqttBaseTopic\":\"%s\","
       "\"tz\":\"%s\",\"hourFormat\":\"%s\",\"use24HourFormat\":%s,\"ntpServer1\":\"%s\",\"ntpServer2\":\"%s\""
       "}}",
       EEPROM_VERSION, (unsigned long)now, calculateEEPROMChecksum(),
@@ -1934,7 +1830,7 @@ void setup() {
       minBrightness, maxBrightness,
       sensorMin, sensorMax,
       mqttEnabled ? "true" : "false", mqttServer, mqttPort,
-      mqttUser, mqttPresenceTopic, presenceTimeout,
+      mqttUser, mqttBaseTopic,
       tzString, use24HourFormat ? "24h" : "12h", use24HourFormat ? "true" : "false", ntpServer1, ntpServer2);
     
     server.send(200, "application/json", json);
@@ -2001,12 +1897,10 @@ void setup() {
   if (mqttEnabled && strlen(mqttServer) > 0) {
     mqttClient.setServer(mqttServer, mqttPort);
     mqttClient.setCallback(mqttCallback);
-    Serial.printf("MQTT enabled, server: %s:%d, topic: %s\n",
-                  mqttServer, mqttPort, mqttPresenceTopic);
+    Serial.printf("MQTT enabled, server: %s:%d, baseTopic: %s\n",
+                  mqttServer, mqttPort, mqttBaseTopic);
   } else {
-    // Wenn MQTT deaktiviert, Display immer an
-    displayEnabled = true;
-    Serial.println("MQTT disabled, display always ON");
+    Serial.println("MQTT disabled");
   }
 
   applyEffect(currentEffectIndex);
@@ -2019,7 +1913,6 @@ void loop() {
   static unsigned long lastStatusPrint = 0;
   static unsigned long lastBrightnessUpdate = 0;
   static unsigned long lastMqttReconnect = 0;
-  static unsigned long lastPresenceCheck = 0;
   static unsigned long lastWatchdogFeed = 0;
   static unsigned long loopCount = 0;
   
@@ -2094,6 +1987,9 @@ void loop() {
   // MQTT Loop (muss regelmäßig aufgerufen werden)
   if (mqttEnabled) {
     mqttClient.loop();
+    if (mqttStateDirty && mqttClient.connected()) {
+      publishMqttState();
+    }
   }
 
   if (timeDiff(millis(), lastWiFiCheck) > 30000) {
@@ -2208,12 +2104,6 @@ void loop() {
     }
   }
 
-  // Präsenz-Timeout prüfen (alle 2 Sekunden)
-  if (mqttEnabled && timeDiff(millis(), lastPresenceCheck) > 2000) {
-    updatePresenceTimeout();
-    lastPresenceCheck = millis();
-  }
-
   if (timeDiff(millis(), lastButtonCheck) > 50) {
     static unsigned long lastPress = 0;
     if (digitalRead(BUTTON_PIN) == LOW && timeDiff(millis(), lastPress) > 300) {
@@ -2246,10 +2136,9 @@ void loop() {
   if (timeDiff(millis(), lastStatusPrint) > 60000) {
     int freeHeap = ESP.getFreeHeap();
     int maxFreeBlock = ESP.getMaxFreeBlockSize();
-    Serial.printf("Uptime: %lus, Free heap: %d bytes, Max free block: %d bytes, Display: %s, Presence: %s\n",
+    Serial.printf("Uptime: %lus, Free heap: %d bytes, Max free block: %d bytes, Display: %s\n",
                   millis() / 1000, freeHeap, maxFreeBlock,
-                  displayEnabled ? "ON" : "OFF",
-                  presenceDetected ? "DETECTED" : "NOT DETECTED");
+                  displayEnabled ? "ON" : "OFF");
 #ifdef DEBUG_LOGGING_ENABLED
     // Regelmäßige Heap-Überwachung (Hypothese B: Heap-Fragmentierung)
     int heapFragmentation = freeHeap - maxFreeBlock;
@@ -2288,7 +2177,7 @@ void loop() {
   
   if (timeDiff(millis(), lastScheduledRestartCheck) >= SCHEDULED_RESTART_CHECK_INTERVAL) {
     time_t now = time(nullptr);
-    struct tm *t = getLocalTime(now);
+    struct tm *t = localtime(&now);
     
     // Prüfe ob es zwischen 2:00-2:05 Uhr ist
     if (t && t->tm_hour == 2 && t->tm_min >= 0 && t->tm_min < 5) {

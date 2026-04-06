@@ -1,167 +1,327 @@
-# Ikea Obegraensad
+# IKEA OBEGRÄNSAD — Smart LED Matrix Firmware
 
-Arduino project for the IKEA OBEGRÄNSAD LED matrix. A small web server
-running on a D1 mini (ESP8266) lets you choose between multiple visual
-effects and configure the device on the fly. The matrix is updated via SPI
-using custom display routines. A global NTP client keeps the device's clock
-in sync so the current time can be displayed both on the matrix and in the
-web interface.
+Custom firmware for the **IKEA OBEGRÄNSAD** 16×16 LED matrix lamp, running on a **Wemos D1 mini (ESP8266)**. Adds animated effects, a web UI, NTP clock, auto-brightness, MQTT control, OTA updates, and a Home Assistant integration.
 
-## Available Effects
+> Inspired by [ph1p/ikea-led-obegraensad](https://github.com/ph1p/ikea-led-obegraensad) — but rebuilt around the ESP8266/D1 mini with a different effects engine, MQTT command channel, and HA integration.
 
-* **Snake** – classic crawling snake across the 16x16 matrix
-* **Clock** – simple digital clock synced via NTP
-* **Rain** – random raindrops falling down the display
-* **Bounce** – single pixel bouncing off the display edges
-* **Stars** – scattered points that twinkle randomly
-* **Lines** – moving vertical stripes sweeping across the matrix
-* **Pulse** – pulsing circles emanating from the center
-* **Waves** – animated wave patterns
-* **Spiral** – rotating spiral animation
-* **Fire** – realistic fire effect
-* **Plasma** – colorful plasma effect
-* **Ripple** – water ripple simulation
-* **Sand Clock** – falling sand animation with physics
+![Wiring overview](docs/images/Gesamt.jpg)
 
-Connect to the device's WiFi network and open the root page to switch
-effects. The page shows the current time and effect and updates without a
-full page reload. A dropdown allows changing effects instantly and the
-timezone can be adjusted interactively (defaulting to Europe/Berlin with
-automatic daylight saving time). A brightness slider lets you dim the LED
-matrix remotely. A physical button wired to pin D4 cycles through the
-available effects without using the web interface.
+---
 
-## Advanced Features
+## Table of Contents
 
-### Auto-Brightness
-The device supports automatic brightness adjustment based on ambient light using an LDR (Light Dependent Resistor) connected to pin A0. The auto-brightness system uses:
-- **Exponential Moving Average (EMA)** for smooth brightness transitions (prevents flickering from TV/monitor changes)
-- **Non-blocking sensor sampling** to prevent watchdog resets
-- **Configurable min/max brightness** and sensor calibration values
-- **Adaptive threshold** to reduce unnecessary brightness changes
+1. [Features](#features)
+2. [Hardware & Components](#hardware--components)
+3. [Wiring](#wiring)
+4. [Opening the Lamp](#opening-the-lamp)
+5. [First-Time Setup](#first-time-setup)
+6. [Web Interface](#web-interface)
+7. [Auto-Brightness (LDR)](#auto-brightness-ldr)
+8. [MQTT Control](#mqtt-control)
+9. [OTA Updates](#ota-updates)
+10. [Backup & Restore](#backup--restore)
+11. [API Reference](#api-reference)
+12. [Home Assistant](#home-assistant)
+13. [Troubleshooting](#troubleshooting)
 
-### MQTT Presence Detection (Aqara Integration)
-The device can integrate with Aqara presence sensors (or any MQTT-based presence sensor) to automatically turn the display on/off based on room occupancy:
-- **Automatic display control**: Display turns on when presence is detected
-- **Configurable timeout**: Set how long the display stays on after the last presence detection (default: 5 minutes)
-- **MQTT broker support**: Connect to any MQTT broker (e.g., Zigbee2MQTT, Home Assistant)
-- **Energy saving**: Display automatically turns off when room is empty
-- **Real-time status**: Web interface shows current presence and display status
+---
 
-#### MQTT Configuration Example
-For Zigbee2MQTT with Aqara FP2/FP1 presence sensor:
-- **MQTT Broker**: IP address of your Zigbee2MQTT server (e.g., `192.168.1.100`)
-- **MQTT Port**: Default `1883`
-- **MQTT Topic**: `zigbee2mqtt/[your_sensor_name]` (e.g., `zigbee2mqtt/aqara_fp2`)
-- **Presence Timeout**: 300 seconds (5 minutes) - adjustable from 10s to 1 hour
+## Features
 
-**Finding your MQTT Topic:**
-1. Open your Zigbee2MQTT web interface
-2. Find your Aqara FP2 sensor in the device list
-3. Note the "Friendly name" - this is used in the topic: `zigbee2mqtt/[friendly_name]`
-4. Or use an MQTT client (like MQTT Explorer) to see all topics
+- **13 effects:** Snake, Clock, Rain, Bounce, Stars, Lines, Pulse, Waves, Spiral, Fire, Plasma, Ripple, Sand Clock
+- **NTP clock** with configurable timezone (default Europe/Berlin incl. DST), 12/24 h
+- **Web UI** with live status, effect picker, brightness slider, full configuration
+- **Auto-brightness** via LDR with Exponential Moving Average (no flicker from TV/monitor changes)
+- **MQTT control** through a generic `cmd` / `state` topic schema (no built-in presence logic)
+- **OTA updates** via ArduinoOTA
+- **Backup & restore** of the full configuration as JSON
+- **mDNS discovery** (`IkeaClock-<chip>.local`) — auto-discoverable by Home Assistant
+- **Hardware button** for cycling effects without the app
+- **EEPROM persistence** with versioning & checksum validation
+- **API rate-limiting** (20 req / 10 s) against accidental flooding
+- **Conditional auto-restart** at 2 AM if heap < 10 KB or uptime > 7 days
 
-**Supported Payload Formats:**
-The code automatically detects and supports multiple formats:
-- Simple values: `true`, `false`, `1`, `0`, `occupied`, `unoccupied`
-- JSON (Aqara FP2): `{"presence":true}`, `{"presence":false}`, `{"occupancy":true}`, `{"occupancy":false}`
+---
 
-Note: The display automatically turns ON when MQTT is disabled to ensure normal operation.
+## Hardware & Components
 
-### Stability Improvements
-- **Non-blocking operations**: All sensor readings and network operations are non-blocking to prevent watchdog timer resets
-- **Optimized auto-brightness**: Reduced from 10 to 5 samples with shorter delays (50ms total instead of 200ms)
-- **Memory optimization**: EEPROM expanded to 512 bytes for storing all configuration including NTP servers
-- **Reliable WiFi**: Automatic reconnection and NTP sync recovery
-- **EEPROM validation**: Version checking and checksum validation for data integrity
-- **Debug log rotation**: Automatic log file rotation to prevent SPIFFS overflow
-- **Rate limiting**: API protection against excessive requests (20 requests per 10 seconds)
-- **millis() overflow handling**: Safe time difference calculations
+| Part | Purpose |
+|------|---------|
+| IKEA OBEGRÄNSAD lamp | 16×16 LED matrix (4 sub-panels of 64 LEDs) |
+| Wemos D1 mini (ESP8266) | Controller |
+| 5 V power supply, ≥ 1 A | Drives the panel and the D1 mini |
+| LDR + ~10 kΩ resistor | Auto-brightness sensor (optional) |
+| Push button | Effect cycling (optional) |
+| Some hookup wire | 6 wires from D1 mini to panel header |
 
-### New Features
+> The original IKEA lamp uses **rivets** instead of screws — see [Opening the Lamp](#opening-the-lamp).
 
-#### Over-The-Air (OTA) Updates
-The device supports OTA updates via ArduinoOTA:
-- **Hostname**: `IkeaClock` (default password: `admin` - change in code!)
-- **Update via Arduino IDE**: Use Tools → Port → Network Ports → `IkeaClock.local` or IP address
-- **Status display**: OTA status and IP address shown in web interface
-- **Automatic display control**: Display turns off during updates
-- **IP address display**: Shown in Serial Monitor and web interface after startup
+---
 
-#### Backup & Restore
-Export and import your complete configuration:
-- **Backup**: Download all settings as JSON file via web interface
-- **Restore**: Upload a previously saved backup to restore all settings
-- **Version checking**: Automatic validation of backup file version
-- **Includes**: Brightness, auto-brightness, MQTT, timezone, NTP servers
+## Wiring
 
-#### Enhanced Configuration
-- **Configurable NTP servers**: Set custom primary and secondary NTP servers (stored in EEPROM)
-- **No hardcoded values**: MQTT server and NTP servers are fully configurable
-- **EEPROM versioning**: Automatic migration support for future layout changes
+The panel exposes a 6-pin header on its lowest internal sub-board: **VCC, CLA, CLK, DI, EN, GND**.
 
-#### Performance Optimizations
-- **String operations**: Optimized using `snprintf()` and `String::reserve()` for better memory usage
-- **MQTT reconnection**: Exponential backoff (1s → 60s max) to reduce server load
-- **MQTT timeout**: 5-second connection timeout to prevent hanging
-- **Conditional debug logging**: Debug logs can be disabled for production builds via `#define DEBUG_LOGGING_ENABLED`
+### Pin Mapping
 
-## Setup
+| D1 mini | GPIO | Panel | Function |
+|---------|------|-------|----------|
+| **5V**  | —    | VCC   | +5 V power |
+| **GND** | —    | GND   | Ground |
+| **D0**  | 16   | EN    | Output Enable (PWM brightness) |
+| **D3**  |  0   | CLA   | Latch |
+| **D5**  | 14   | CLK   | SPI Clock |
+| **D7**  | 13   | DI    | SPI Data (MOSI) |
+| **D4**  |  2   | —     | Button to GND (optional) |
+| **A0**  | —    | —     | LDR to 5 V via voltage divider (optional) |
 
-To configure WiFi access, copy `secrets_template.h` to `secrets.h` and replace
-the placeholder `ssid` and `password` values with your network credentials
-before uploading.
+### Schematic
 
-## Dependencies
+![Wiring diagram](docs/wiring.svg)
 
-- ESP8266WiFi
-- ESP8266WebServer
-- PubSubClient (for MQTT support)
-- ArduinoOTA (for OTA updates)
-- EEPROM
-- SPI
-- FS (SPIFFS for debug logging)
+### Real Wiring
 
-## Building
+D1 mini soldered to the panel's header — close-up:
 
-### Debug Logging
-Debug logging is disabled by default. To enable for debugging, uncomment this line in `IkeaObegraensad.ino`:
-```cpp
-#define DEBUG_LOGGING_ENABLED
+![D1 mini close-up](docs/images/ESP.jpg)
+
+Panel header pinout:
+
+![Panel connector](docs/images/Panel%20Anschl%C3%BCsse.jpg)
+
+> ⚠️ **Power:** Either power the D1 mini through USB **or** through its `5V` pin from the panel supply — never both at once, otherwise USB power can flow back into the panel supply.
+
+---
+
+## Opening the Lamp
+
+The IKEA OBEGRÄNSAD is held together by **rivets**, not screws. Two ways in:
+
+1. **Reversible:** Carefully pry the back panel off by inserting a flat screwdriver between the rivets and the back, then leveraging with a second tool. Slow and steady.
+2. **Permanent:** Drill out the rivets. Cleaner access but no going back to factory state.
+
+Inside you'll find 4 sub-panels, daisy-chained. The lowest one carries the 6-pin header you'll wire the D1 mini to.
+
+---
+
+## First-Time Setup
+
+### 1. Clone
+```bash
+git clone https://github.com/<your-fork>/IkeaObegraensad.git
 ```
 
-### OTA Password
-**Important**: Change the OTA password in `setup()` before deploying:
-```cpp
-ArduinoOTA.setPassword("your_secure_password");
+### 2. Create credentials file
+```bash
+cp secrets_template.h secrets.h
 ```
+Edit `secrets.h`:
+```cpp
+const char* ssid        = "YOUR_WIFI";
+const char* password    = "YOUR_PASSWORD";
+const char* otaPassword = "A_STRONG_PASSWORD";
+```
+
+### 3. Configure Arduino IDE
+- **Board:** *LOLIN(WEMOS) D1 R2 & mini*
+- **Flash Size:** at least **1 MB FS (SPIFFS)** — required for logging & backup
+- **Upload Speed:** 921600
+
+### 4. Install libraries
+- ESP8266WiFi *(board package)*
+- ESP8266WebServer *(board package)*
+- PubSubClient *(MQTT)*
+- ArduinoOTA *(board package)*
+
+### 5. Flash via USB
+First install must be over USB. After that you can use OTA.
+
+### 6. Find the device
+After boot, the serial monitor (115200 baud) prints:
+```
+Connected! IP: 192.168.1.42
+mDNS hostname: IkeaClock-a1b2c3.local
+```
+Open that IP in a browser. Done.
+
+---
+
+## Web Interface
+
+Reachable at `http://<ip>` or `http://IkeaClock-<chip>.local`. It provides:
+
+- **Live status:** time, current effect, brightness, MQTT state, display state
+- **Effect picker** dropdown
+- **Brightness** slider (manual or auto)
+- **Timezone** picker (default Europe/Berlin with automatic DST)
+- **12 / 24 h format** toggle
+- **MQTT configuration** (broker, user, base topic)
+- **Auto-brightness** calibration
+- **Backup / restore** of the full configuration
+- **Restart diagnostics** (reset counter, last reset reason, heap before crash)
+
+---
+
+## Auto-Brightness (LDR)
+
+If an LDR is wired to A0, the display can adapt to ambient light automatically.
+
+**How it works:**
+- Sensor is sampled non-blocking (5 samples × 10 ms)
+- Values are smoothed with an **Exponential Moving Average** so a passing TV/monitor change won't make it flicker
+- Linear mapping from sensor range to brightness range
+- Hysteresis prevents constant tiny adjustments
+
+**Calibration parameters (web UI):**
+
+| Parameter   | Meaning |
+|-------------|---------|
+| `min`       | Minimum display brightness (e.g. at night) |
+| `max`       | Maximum display brightness (e.g. midday) |
+| `sensorMin` | LDR reading in darkness |
+| `sensorMax` | LDR reading in bright light |
+
+---
+
+## MQTT Control
+
+The firmware exposes a **generic MQTT control & state channel** — there is **no built-in presence logic**. If you want presence-driven behavior, map it externally (Home Assistant, Node-RED, …) onto the command topic below.
+
+### Configuration
+
+In the web UI under "MQTT Control":
+- **Broker IP** + **Port** (default 1883)
+- **User / password** (optional)
+- **Base topic** (default `ikeaclock`)
+
+### Command topic — `<baseTopic>/cmd`
+
+Send `key:value` payloads:
+
+| Payload                | Action                                  |
+|------------------------|-----------------------------------------|
+| `display:on`           | Turn the display on                     |
+| `display:off`          | Turn the display off                    |
+| `effect:clock`         | Switch effect (any name from the list)  |
+| `brightness:512`       | Set brightness 0–1023 (disables auto)   |
+| `autobrightness:on`    | Enable auto-brightness                  |
+| `autobrightness:off`   | Disable auto-brightness                 |
+
+### State topic — `<baseTopic>/state`
+
+On every change the firmware publishes a retained JSON message:
+```json
+{"display":true,"effect":"clock","brightness":512,"autoBrightness":false}
+```
+
+### Example — Aqara FP2 → display, via Home Assistant
+
+```yaml
+automation:
+  - alias: "FP2 presence -> IKEA Clock"
+    trigger:
+      - platform: state
+        entity_id: binary_sensor.aqara_fp2_presence
+    action:
+      - service: mqtt.publish
+        data:
+          topic: ikeaclock/cmd
+          payload: "display:{{ 'on' if trigger.to_state.state == 'on' else 'off' }}"
+```
+
+### CLI test
+```bash
+mosquitto_pub -h 192.168.1.10 -t ikeaclock/cmd -m "effect:fire"
+mosquitto_sub -h 192.168.1.10 -t ikeaclock/state
+```
+
+---
 
 ## OTA Updates
 
-### Finding the IP Address
-After device startup, the IP address is displayed in:
-1. **Serial Monitor** (115200 baud) - Look for "OTA IP Address: 192.168.x.x"
-2. **Web Interface** - Check the "IP-Adresse" field in the status dashboard
-3. **Router interface** - Look for device named "IkeaClock"
+After the first USB install, all subsequent uploads are wireless:
 
-### Using OTA Updates
-1. Open Arduino IDE
-2. Go to **Tools → Port → Network Ports**
-3. Select the IP address (e.g., `192.168.1.100`) or `IkeaClock.local`
-4. Click **Upload** button
-5. Enter password when prompted (default: `admin`)
+1. **Arduino IDE** → Tools → Port → **Network Ports**
+2. Select `IkeaClock-<chip>.local` or the IP address
+3. Click Upload
+4. Enter the OTA password (from `secrets.h`)
 
-## API Endpoints
+> ⚠️ The display turns off automatically during the update and comes back after the reboot.
 
-- `GET /` - Web interface
-- `GET /api/status` - Current status (JSON) - includes IP address
-- `GET /api/backup` - Download configuration backup (JSON)
-- `POST /api/restore` - Restore configuration from backup (JSON body)
-- `GET /api/setTimezone?tz=...` - Set timezone
-- `GET /api/setBrightness?b=...` - Set brightness (0-1023)
-- `GET /api/setAutoBrightness?enabled=...&min=...&max=...&sensorMin=...&sensorMax=...` - Configure auto-brightness
-- `GET /api/setMqtt?enabled=...&server=...&port=...&user=...&password=...&topic=...&timeout=...` - Configure MQTT
-- `GET /effect/[name]` - Switch effect (snake, clock, rain, bounce, stars, lines, pulse, waves, spiral, fire, plasma, ripple, sandclock)
-- `GET /api/debuglog` - Download debug log (NDJSON format) - only if debug logging enabled
+---
 
-All API endpoints are protected by rate limiting (20 requests per 10 seconds).
+## Backup & Restore
+
+**Backup:**
+```bash
+curl http://<ip>/api/backup -o ikeaclock-backup.json
+```
+Contains all settings: brightness, auto-brightness, MQTT, NTP servers, timezone.
+
+**Restore:**
+```bash
+curl -X POST http://<ip>/api/restore -d @ikeaclock-backup.json
+```
+
+---
+
+## API Reference
+
+All endpoints are rate-limited (20 requests / 10 s).
+
+| Method | Path | Description |
+|--------|------|-------------|
+| GET  | `/` | Web interface |
+| GET  | `/api/status` | Full status (JSON) |
+| GET  | `/api/setTimezone?tz=Europe/Berlin` | Set timezone (POSIX TZ string) |
+| GET  | `/api/setClockFormat?format=24` | `12` or `24` |
+| GET  | `/api/setBrightness?b=0..1023` | Set brightness |
+| GET  | `/api/setAutoBrightness?enabled=&min=&max=&sensorMin=&sensorMax=` | Configure auto-brightness |
+| GET  | `/api/setMqtt?enabled=&server=&port=&user=&password=&topic=` | Configure MQTT (`topic` = base topic) |
+| GET  | `/api/setDisplay?enabled=true\|false` | Display on/off |
+| GET  | `/api/backup` | Export configuration as JSON |
+| POST | `/api/restore` | Import configuration from JSON |
+| GET  | `/api/resetRestartCount` | Reset restart counter |
+| GET  | `/effect/<name>` | Switch effect (`snake`, `clock`, `rain`, `bounce`, `stars`, `lines`, `pulse`, `waves`, `spiral`, `fire`, `plasma`, `ripple`, `sandclock`) |
+| GET  | `/api/debuglog` | Debug log (NDJSON, only when enabled) |
+
+---
+
+## Home Assistant
+
+A separate **HACS integration** ships every feature without needing MQTT, using plain HTTP polling and mDNS auto-discovery:
+
+➡️ [`ikea-obegraensad-homeassistant`](https://github.com/Abrechen2/ikea-obegraensad-homeassistant)
+
+It exposes switches, selects, lights, and sensors that auto-group under one device.
+
+---
+
+## Troubleshooting
+
+### Build / Flash
+- **Watchdog resets during boot** → check Flash Size in the Arduino IDE (must be at least 1 MB FS)
+- **OTA can't find the device** → is Avahi/Bonjour running on your machine? Try the IP directly instead of `.local`
+
+### Runtime
+- **Display flickers** → re-tune `sensorMin` / `sensorMax` for auto-brightness
+- **MQTT won't connect** → verify IP/port, broker reachability, and check the status badge in the web UI
+- **Wrong time** → set the timezone as a POSIX TZ string, e.g. `CET-1CEST-2,M3.5.0/02,M10.5.0/03`
+
+### Enable debug logging
+In `IkeaObegraensad.ino`:
+```cpp
+#define DEBUG_LOGGING_ENABLED
+```
+Logs are written to SPIFFS and can be downloaded from `/api/debuglog` (NDJSON).
+
+---
+
+## Credits
+
+- Original concept and reverse engineering of the OBEGRÄNSAD panel: [ph1p/ikea-led-obegraensad](https://github.com/ph1p/ikea-led-obegraensad)
+- This fork: ESP8266/D1 mini port with custom effects, MQTT command channel, and Home Assistant integration
+
+## License
+
+MIT — see [LICENSE](LICENSE).

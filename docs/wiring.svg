@@ -1,0 +1,214 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 900 750" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif">
+  <defs>
+    <!-- Pattern background -->
+    <pattern id="grid" width="30" height="30" patternUnits="userSpaceOnUse">
+      <path d="M 30 0 L 0 0 0 30" fill="none" stroke="#e2e8f0" stroke-width="1"/>
+      <circle cx="30" cy="30" r="1.5" fill="#cbd5e1" />
+    </pattern>
+    <!-- Shadow for depth -->
+    <filter id="shadow" x="-5%" y="-5%" width="115%" height="115%">
+      <feDropShadow dx="2" dy="4" stdDeviation="4" flood-color="#0f172a" flood-opacity="0.15"/>
+    </filter>
+  </defs>
+
+  <rect width="100%" height="100%" fill="#f8fafc"/>
+  <rect width="100%" height="100%" fill="url(#grid)"/>
+
+  <style>
+    .wire { fill: none; stroke-linejoin: round; stroke-width: 4; stroke-linecap: round; }
+    .wire-glow { fill: none; stroke-linejoin: round; stroke-width: 8; stroke-opacity: 0.2; stroke-linecap: round; }
+    .lbl { font-size: 13px; font-weight: 600; fill: #475569; }
+    .title { font-size: 26px; font-weight: 800; fill: #1e293b; letter-spacing: 0.5px; }
+    .subtitle { font-size: 14px; font-weight: 500; fill: #64748b; }
+    .pin-lbl { font-size: 11px; fill: #f8fafc; font-weight: 700; letter-spacing: 0.5px; }
+    .note { font-size: 12px; fill: #64748b; font-weight: 500; line-height: 1.4; }
+    .panel-box { fill: #ffffff; stroke: #cbd5e1; stroke-width: 2; rx: 12; }
+    .screen-box { fill: #1e293b; rx: 8; }
+    .module-box { fill: #0ea5e9; stroke: #0284c7; stroke-width: 2; rx: 8; }
+    .highlight-text { fill: #ffffff; font-weight: bold; font-size: 14px; }
+    .usb-port { fill: #0f172a; rx: 3; }
+    .led-dot { fill: #334155; }
+    .pin-hdr { fill: #0f172a; }
+  </style>
+
+  <g transform="translate(450, 40)" text-anchor="middle">
+    <text class="title">IKEA OBEGRÄNSAD — D1 mini Wiring</text>
+    <text y="24" class="subtitle">16x16 LED Matrix Panel Optimized Wiring Diagram</text>
+  </g>
+
+  <!-- Wire traces from D1 to Panel -->
+  <g class="wire-glow">
+    <!-- VCC / 5V (Red) --> <path stroke="#ef4444" d="M 555 375 L 520 375 L 520 590 L 135 590 L 135 535"/>
+    <!-- CLA / LE / D3 (Gray) --> <path stroke="#94a3b8" d="M 555 225 L 420 225 L 420 580 L 160 580 L 160 535"/>
+    <!-- CLK / D5 (Green) --> <path stroke="#22c55e" d="M 555 275 L 460 275 L 460 570 L 185 570 L 185 535"/>
+    <!-- DI / D7 (Blue) --> <path stroke="#3b82f6" d="M 555 300 L 480 300 L 480 560 L 210 560 L 210 535"/>
+    <!-- EN / D0 (Yellow) --> <path stroke="#f59e0b" d="M 555 200 L 440 200 L 440 550 L 235 550 L 235 535"/>
+    <!-- GND (Black) --> <path stroke="#111827" d="M 555 400 L 500 400 L 500 540 L 260 540 L 260 535"/>
+  </g>
+  
+  <g class="wire" filter="url(#shadow)">
+    <!-- VCC / 5V (Red) --> <path stroke="#ef4444" d="M 555 375 L 520 375 L 520 590 L 135 590 L 135 535"/>
+    <!-- CLA / LE / D3 (Gray) --> <path stroke="#94a3b8" d="M 555 225 L 420 225 L 420 580 L 160 580 L 160 535"/>
+    <!-- CLK / D5 (Green) --> <path stroke="#22c55e" d="M 555 275 L 460 275 L 460 570 L 185 570 L 185 535"/>
+    <!-- DI / D7 (Blue) --> <path stroke="#3b82f6" d="M 555 300 L 480 300 L 480 560 L 210 560 L 210 535"/>
+    <!-- EN / D0 (Yellow) --> <path stroke="#f59e0b" d="M 555 200 L 440 200 L 440 550 L 235 550 L 235 535"/>
+    <!-- GND (Black) --> <path stroke="#111827" d="M 555 400 L 500 400 L 500 540 L 260 540 L 260 535"/>
+  </g>
+
+  <!-- Connection Dots at Panel ends -->
+  <g filter="url(#shadow)">
+    <circle cx="135" cy="535" r="4" fill="#ef4444"/> <!-- VCC -->
+    <circle cx="160" cy="535" r="4" fill="#94a3b8"/> <!-- CLA -->
+    <circle cx="185" cy="535" r="4" fill="#22c55e"/> <!-- CLK -->
+    <circle cx="210" cy="535" r="4" fill="#3b82f6"/> <!-- DI -->
+    <circle cx="235" cy="535" r="4" fill="#f59e0b"/> <!-- EN -->
+    <circle cx="260" cy="535" r="4" fill="#111827"/> <!-- GND -->
+  </g>
+
+  <!-- MATRIX PANEL -->
+  <g transform="translate(30, 80)" filter="url(#shadow)">
+    <rect class="panel-box" width="370" height="420" />
+    <rect class="screen-box" x="20" y="55" width="330" height="340" />
+    <text x="185" y="30" text-anchor="middle" class="lbl" style="font-size: 15px; font-weight: 700;">IKEA OBEGRÄNSAD</text>
+    <text x="185" y="46" text-anchor="middle" class="subtitle" style="font-size: 12px;">Backside / Internal Connections</text>
+    
+    <!-- LED Matrix Placeholder -->
+    <g class="led-dot">
+      <circle cx="65" cy="95" r="3"/><circle cx="125" cy="95" r="3"/><circle cx="185" cy="95" r="3"/><circle cx="245" cy="95" r="3"/><circle cx="305" cy="95" r="3"/>
+      <circle cx="65" cy="155" r="3"/><circle cx="125" cy="155" r="3"/><circle cx="185" cy="155" r="3"/><circle cx="245" cy="155" r="3"/><circle cx="305" cy="155" r="3"/>
+      <circle cx="65" cy="215" r="3"/><circle cx="125" cy="215" r="3"/><circle cx="185" cy="215" r="3"/><circle cx="245" cy="215" r="3"/><circle cx="305" cy="215" r="3"/>
+      <circle cx="65" cy="275" r="3"/><circle cx="125" cy="275" r="3"/><circle cx="185" cy="275" r="3"/><circle cx="245" cy="275" r="3"/><circle cx="305" cy="275" r="3"/>
+      <circle cx="65" cy="335" r="3"/><circle cx="125" cy="335" r="3"/><circle cx="185" cy="335" r="3"/><circle cx="245" cy="335" r="3"/><circle cx="305" cy="335" r="3"/>
+    </g>
+    <!-- Lit LEDs -->
+    <circle cx="125" cy="155" r="4" fill="#38bdf8" filter="drop-shadow(0 0 4px #38bdf8)"/>
+    <circle cx="185" cy="215" r="4" fill="#818cf8" filter="drop-shadow(0 0 4px #818cf8)"/>
+    <circle cx="245" cy="275" r="4" fill="#38bdf8" filter="drop-shadow(0 0 4px #38bdf8)"/>
+  </g>
+
+  <!-- Connector Pins on Panel -->
+  <g transform="translate(120, 500)" filter="url(#shadow)">
+    <rect class="pin-hdr" width="155" height="40" rx="4"/>
+    <text x="15" y="25" text-anchor="middle" class="pin-lbl">VCC</text>
+    <text x="40" y="25" text-anchor="middle" class="pin-lbl">CLA</text>
+    <text x="65" y="25" text-anchor="middle" class="pin-lbl">CLK</text>
+    <text x="90" y="25" text-anchor="middle" class="pin-lbl">DI</text>
+    <text x="115" y="25" text-anchor="middle" class="pin-lbl">EN</text>
+    <text x="140" y="25" text-anchor="middle" class="pin-lbl">GND</text>
+  </g>
+
+  <!-- Wires routing AROUND D1 Mini (Foreground) -->
+  <g class="wire-glow">
+    <!-- Button D4 (Dark Blue / Black) -> Top route -->
+    <path stroke="#1e293b" d="M 760 250 L 745 250 L 745 130 L 545 130 L 545 250 L 555 250"/>
+    
+    <!-- Button GND (Black) -> Bottom route -->
+    <path stroke="#111827" d="M 760 270 L 745 270 L 745 440 L 545 440 L 545 400 L 555 400"/>
+    
+    <!-- LDR 3V3 (Orange) -> Bottom route -->
+    <path stroke="#f97316" d="M 760 325 L 755 325 L 755 490 L 525 490 L 525 325 L 555 325"/>
+    
+    <!-- LDR A0 (Purple) -> Bottom route -->
+    <path stroke="#8b5cf6" d="M 760 350 L 750 350 L 750 470 L 535 470 L 535 350 L 555 350"/>
+  </g>
+
+  <g class="wire" filter="url(#shadow)">
+    <!-- Button D4 -->
+    <path stroke="#1e293b" d="M 760 250 L 745 250 L 745 130 L 545 130 L 545 250 L 555 250"/>
+    
+    <!-- Button GND -->
+    <path stroke="#111827" d="M 760 270 L 745 270 L 745 440 L 545 440 L 545 400 L 555 400"/>
+    
+    <!-- LDR 3V3 (Orange) -->
+    <path stroke="#f97316" d="M 760 325 L 755 325 L 755 490 L 525 490 L 525 325 L 555 325"/>
+    
+    <!-- LDR A0 (Purple) -->
+    <path stroke="#8b5cf6" d="M 760 350 L 750 350 L 750 470 L 535 470 L 535 350 L 555 350"/>
+  </g>
+
+  <!-- External Pull-down Resistor (placed centrally) -->
+  <g transform="translate(680, 455)" filter="url(#shadow)">
+    <!-- Black line connecting A0 and GND -->
+    <path stroke="#1e293b" stroke-width="3" d="M 0 -15 V 15"/>
+    <!-- Resistor Body -->
+    <rect x="-8" y="-12" width="16" height="24" fill="#fef08a" stroke="#ca8a04" stroke-width="2" rx="2"/>
+    <text x="24" y="4" class="pin-lbl" fill="#ca8a04" font-weight="800">5.1k Ω</text>
+    <!-- Connection Dots -->
+    <circle cx="0" cy="-15" r="3" fill="#111827"/> <!-- to GND Y=440 -->
+    <circle cx="0" cy="15" r="3" fill="#8b5cf6"/> <!-- to A0 Y=470 -->
+  </g>
+
+  <!-- D1 MINI ESP8266 -->
+  <g transform="translate(560, 140)" filter="url(#shadow)">
+    <rect class="module-box" width="180" height="280" />
+    <rect x="50" y="20" width="80" height="50" fill="#0f172a" rx="4"/>
+    <path d="M 60 30 L 70 30 M 60 40 L 70 40 M 60 50 L 70 50 M 110 30 L 120 30 M 110 40 L 120 40 M 110 50 L 120 50" stroke="#f8fafc" stroke-width="2"/>
+    <text x="90" y="45" text-anchor="middle" class="pin-lbl">WIFI</text>
+    
+    <text x="90" y="95" text-anchor="middle" class="highlight-text">D1 mini</text>
+    <text x="90" y="115" text-anchor="middle" class="pin-lbl" style="fill: #bae6fd">ESP8266</text>
+    
+    <rect class="usb-port" x="40" y="240" width="100" height="40" />
+    <text x="90" y="265" text-anchor="middle" class="pin-lbl">USB (Power)</text>
+
+    <!-- LEFT PINS HEADERS -->
+    <g class="pin-hdr">
+      <rect x="-8" y="52" width="20" height="15" rx="2"/><text x="20" y="64" class="pin-lbl">D0</text>
+      <rect x="-8" y="77" width="20" height="15" rx="2"/><text x="20" y="89" class="pin-lbl">D3</text>
+      <rect x="-8" y="102" width="20" height="15" rx="2"/><text x="20" y="114" class="pin-lbl">D4</text>
+      <rect x="-8" y="127" width="20" height="15" rx="2"/><text x="20" y="139" class="pin-lbl">D5</text>
+      <rect x="-8" y="152" width="20" height="15" rx="2"/><text x="20" y="164" class="pin-lbl">D7</text>
+      <rect x="-8" y="177" width="20" height="15" rx="2"/><text x="20" y="189" class="pin-lbl">3V3</text>
+      <rect x="-8" y="202" width="20" height="15" rx="2"/><text x="20" y="214" class="pin-lbl">A0</text>
+      <rect x="-8" y="227" width="20" height="15" rx="2"/><text x="20" y="239" class="pin-lbl">5V</text>
+      <rect x="-8" y="252" width="20" height="15" rx="2"/><text x="20" y="264" class="pin-lbl">GND</text>
+    </g>
+  </g>
+
+  <!-- BUTTON -->
+  <g transform="translate(760, 220)" filter="url(#shadow)">
+    <rect class="panel-box" width="100" height="70" rx="6"/>
+    <circle cx="50" cy="30" r="14" fill="#ef4444" stroke="#b91c1c" stroke-width="2"/>
+    <text x="50" y="60" text-anchor="middle" class="lbl" style="font-size: 14px;">Button</text>
+    
+    <!-- Wire attachment points -->
+    <circle cx="0" cy="30" r="3" fill="#1e293b"/> <!-- To D4 -->
+    <circle cx="0" cy="50" r="3" fill="#111827"/> <!-- To GND -->
+  </g>
+
+  <!-- LDR -->
+  <g transform="translate(760, 315)" filter="url(#shadow)">
+    <rect class="panel-box" width="100" height="70" rx="6"/>
+    
+    <ellipse cx="50" cy="22.5" rx="16" ry="16" fill="#f8fafc" stroke="#94a3b8" stroke-width="2"/>
+    <path d="M 40 17.5 V 27.5 M 45 17.5 V 27.5 M 50 17.5 V 27.5 M 55 17.5 V 27.5 M 60 17.5 V 27.5" stroke="#ef4444" stroke-width="2"/>
+    
+    <text x="50" y="55" text-anchor="middle" class="lbl" style="font-size: 14px;">LDR Sensor</text>
+
+    <!-- Wire attachment points -->
+    <circle cx="0" cy="10" r="3" fill="#f97316"/> <!-- 3V3 Pin -->
+    <circle cx="0" cy="35" r="3" fill="#8b5cf6"/> <!-- A0 Pin -->
+  </g>
+
+  <!-- LEGEND -->
+  <g transform="translate(80, 650)">
+    <text x="0" y="0" class="lbl" style="font-weight: 800; font-size: 14px;">Pinout D1 Mini → Panel</text>
+    <rect x="0" y="12" width="16" height="16" rx="4" fill="#ef4444"/><text x="26" y="25" class="note">5V → VCC (Power Supply)</text>
+    <rect x="0" y="38" width="16" height="16" rx="4" fill="#94a3b8"/><text x="26" y="51" class="note">D3 → CLA / LE (Latch)</text>
+    <rect x="0" y="64" width="16" height="16" rx="4" fill="#22c55e"/><text x="26" y="77" class="note">D5 → CLK (SPI Clock)</text>
+    
+    <rect x="230" y="12" width="16" height="16" rx="4" fill="#3b82f6"/><text x="256" y="25" class="note">D7 → DI (SPI Data/MOSI)</text>
+    <rect x="230" y="38" width="16" height="16" rx="4" fill="#f59e0b"/><text x="256" y="51" class="note">D0 → EN (Output Enable)</text>
+    <rect x="230" y="64" width="16" height="16" rx="4" fill="#111827"/><text x="256" y="77" class="note">GND → GND</text>
+  </g>
+
+  <!-- Warning Box -->
+  <g transform="translate(560, 520)" filter="url(#shadow)">
+    <rect width="280" height="90" rx="8" fill="#fffbeb" stroke="#fcd34d" stroke-width="2"/>
+    <text x="140" y="25" text-anchor="middle" font-weight="bold" fill="#b45309" font-size="14">⚠️ Important Notice</text>
+    <text x="140" y="45" text-anchor="middle" class="note" fill="#92400e">Powering D1 mini</text>
+    <text x="140" y="60" text-anchor="middle" class="note" fill="#92400e">via USB OR 5V pin on the panel.</text>
+    <text x="140" y="75" text-anchor="middle" class="note" font-weight="bold" fill="#b45309">Never use both at the same time!</text>
+  </g>
+
+</svg>
