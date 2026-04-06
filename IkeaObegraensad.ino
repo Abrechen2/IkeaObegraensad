@@ -19,7 +19,7 @@ extern "C" {
 //#define DEBUG_LOGGING_ENABLED
 
 // Firmware-Version
-#define FIRMWARE_VERSION "1.6.0"
+#define FIRMWARE_VERSION "1.6.1"
 
 #include "Matrix.h"
 #include "Effect.h"
