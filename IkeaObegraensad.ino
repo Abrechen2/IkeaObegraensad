@@ -1142,12 +1142,12 @@ void handleStatus() {
 
 // Prüft ob ein POSIX-TZ-String grundlegend gültig aussieht.
 // Schützt setenv()/tzset() vor offensichtlich defekten Eingaben.
-// Regeln: mindestens 3 Zeichen, nur druckbare ASCII-Zeichen (0x20-0x7E), keine Anführungszeichen.
+// Regeln: mindestens 3 Zeichen, nur druckbare ASCII-Zeichen ohne Leerzeichen (0x21-0x7E), keine Anführungszeichen.
 bool isValidTzString(const char* tz) {
   if (tz == nullptr || strlen(tz) < 3) return false;
   for (size_t i = 0; tz[i] != '\0'; i++) {
     char c = tz[i];
-    if (c < 0x20 || c > 0x7E) return false;
+    if (c < 0x21 || c > 0x7E) return false;
     if (c == '"' || c == '\'') return false;
   }
   return true;
