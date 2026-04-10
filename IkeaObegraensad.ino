@@ -261,8 +261,8 @@ bool copyServerArgToBuffer(const String& src, char* dest, size_t maxLen) {
 }
 
 // Prüft ob ein MQTT-Basis-Topic gültig ist.
-// Erlaubt: alphanumerische Zeichen, Bindestrich, Unterstrich.
-// Verboten: '/', '+', '#' — diese haben MQTT-Sonderbedeutung.
+// Verboten: '/', '+', '#' — diese haben MQTT-Sonderbedeutung in Subscribe-Topics.
+// Leerer String und nullptr werden ebenfalls abgelehnt.
 bool isValidMqttBaseTopic(const char* topic) {
   if (topic == nullptr || strlen(topic) == 0) return false;
   for (size_t i = 0; topic[i] != '\0'; i++) {
