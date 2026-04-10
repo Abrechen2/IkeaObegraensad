@@ -38,6 +38,7 @@ extern "C" {
 #include "Plasma.h"
 #include "Ripple.h"
 #include "SandClock.h"
+#include "SensorClock.h"
 #include "Logging.h"
 
 ESP8266WebServer server(80);
@@ -135,6 +136,13 @@ uint32_t sensorSampleSum = 0;
 unsigned long lastSensorSample = 0;
 bool sensorSamplingInProgress = false;
 
+// SensorClock globals
+float    g_sensorTemp = NAN;   // Letzte Temperatur von HA (°C), NAN = kein Wert
+float    g_sensorHumi = NAN;   // Letzte Luftfeuchtigkeit von HA (%), NAN = kein Wert
+uint16_t g_clockDur   = 10;    // Anzeigedauer Uhren-Folie (Sekunden)
+uint16_t g_tempDur    = 5;     // Anzeigedauer Temperatur-Folie (Sekunden)
+uint16_t g_humiDur    = 5;     // Anzeigedauer Luftfeuchtigkeits-Folie (Sekunden)
+
 const uint8_t EEPROM_VERSION = 3;   // EEPROM-Layout Version
 const uint8_t EEPROM_MAGIC = 0xB8;  // Magic Byte zur Erkennung initialisierter EEPROM
 const uint16_t EEPROM_SIZE = 1024;   // Erweitert für MQTT-, NTP- und Log-Server-Konfiguration
@@ -174,6 +182,9 @@ const uint16_t EEPROM_LAST_RESET_REASON_ADDR = 347; // String (32 bytes)
 const uint16_t EEPROM_LAST_UPTIME_ADDR = 379;        // uint32_t (4 bytes) - Uptime vor letztem Restart
 const uint16_t EEPROM_LAST_HEAP_BEFORE_RESTART_ADDR = 383; // uint32_t (4 bytes) - Heap vor Restart
 const uint16_t EEPROM_TZ_STRING_ADDR = 387;          // String (128 bytes) - Zeitzone
+const uint16_t EEPROM_CLOCK_DUR_ADDR = 515;          // uint16_t (2 bytes) – SensorClock Uhren-Folie
+const uint16_t EEPROM_TEMP_DUR_ADDR  = 517;          // uint16_t (2 bytes) – SensorClock Temperatur-Folie
+const uint16_t EEPROM_HUMI_DUR_ADDR  = 519;          // uint16_t (2 bytes) – SensorClock Luftfeuchtigkeits-Folie
 
 // Buffer-Größen Konstanten
 const size_t BUFFER_SIZE_HOSTNAME = 32;      // Hostname Buffer
@@ -200,7 +211,8 @@ Effect *effects[] = {
   &fireEffect,
   &plasmaEffect,
   &rippleEffect,
-  &sandClockEffect
+  &sandClockEffect,
+  &sensorClockEffect
 };
 const uint8_t effectCount = sizeof(effects) / sizeof(effects[0]);
 uint8_t currentEffectIndex = 12; // start with sandclock
@@ -245,6 +257,18 @@ bool copyServerArgToBuffer(const String& src, char* dest, size_t maxLen) {
   size_t len = min(src.length(), maxLen - 1);
   strncpy(dest, src.c_str(), len);
   dest[len] = '\0';
+  return true;
+}
+
+// Prüft ob ein MQTT-Basis-Topic gültig ist.
+// Erlaubt: alphanumerische Zeichen, Bindestrich, Unterstrich.
+// Verboten: '/', '+', '#' — diese haben MQTT-Sonderbedeutung.
+bool isValidMqttBaseTopic(const char* topic) {
+  if (topic == nullptr || strlen(topic) == 0) return false;
+  for (size_t i = 0; topic[i] != '\0'; i++) {
+    char c = topic[i];
+    if (c == '/' || c == '+' || c == '#') return false;
+  }
   return true;
 }
 
@@ -355,7 +379,7 @@ void loadBrightnessFromStorage() {
     readStringFromEEPROM(EEPROM_MQTT_TOPIC_ADDR, mqttBaseTopic, sizeof(mqttBaseTopic));
     // EEPROM_PRESENCE_TIMEOUT_ADDR ist legacy und wird ignoriert (Layout bleibt für Kompatibilität)
     // Migration: Alte Präsenz-Topics durch Default ersetzen
-    if (strlen(mqttBaseTopic) == 0 || strchr(mqttBaseTopic, '/') != nullptr) {
+    if (!isValidMqttBaseTopic(mqttBaseTopic)) {
       strncpy(mqttBaseTopic, "ikeaclock", sizeof(mqttBaseTopic) - 1);
       mqttBaseTopic[sizeof(mqttBaseTopic) - 1] = '\0';
     }
@@ -375,7 +399,15 @@ void loadBrightnessFromStorage() {
       ntpServer2[sizeof(ntpServer2) - 1] = '\0';
     }
     use24HourFormat = EEPROM.read(EEPROM_HOUR_FORMAT_ADDR) != 0;
-    
+
+    // SensorClock Slide-Dauern laden
+    EEPROM.get(EEPROM_CLOCK_DUR_ADDR, g_clockDur);
+    EEPROM.get(EEPROM_TEMP_DUR_ADDR,  g_tempDur);
+    EEPROM.get(EEPROM_HUMI_DUR_ADDR,  g_humiDur);
+    if (g_clockDur < 1 || g_clockDur > 3600) g_clockDur = 10;
+    if (g_tempDur  < 1 || g_tempDur  > 3600) g_tempDur  = 5;
+    if (g_humiDur  < 1 || g_humiDur  > 3600) g_humiDur  = 5;
+
     // Zeitzone laden
     char loadedTz[EEPROM_TZ_STRING_LEN + 1];
     readStringFromEEPROM(EEPROM_TZ_STRING_ADDR, loadedTz, sizeof(loadedTz));
@@ -452,6 +484,9 @@ void loadBrightnessFromStorage() {
     ntpServer2[sizeof(ntpServer2) - 1] = '\0';
     use24HourFormat = true;
     // Zeitzone: Standardwert verwenden (bereits in tzString initialisiert)
+    g_clockDur = 10;
+    g_tempDur  = 5;
+    g_humiDur  = 5;
     restartCount = 0;
     lastResetReason[0] = '\0';
     lastUptimeBeforeRestart = 0;
@@ -478,6 +513,16 @@ void persistBrightnessToStorage() {
   
   // Commit mit Watchdog-Fütterung
   commitEEPROMWithWatchdog("persistBrightnessToStorage");
+}
+
+void persistSlideConfig() {
+  ensureEEPROMInitialized();
+  EEPROM.put(EEPROM_CLOCK_DUR_ADDR, g_clockDur);
+  EEPROM.put(EEPROM_TEMP_DUR_ADDR,  g_tempDur);
+  EEPROM.put(EEPROM_HUMI_DUR_ADDR,  g_humiDur);
+  uint16_t checksum = calculateEEPROMChecksum();
+  EEPROM.put(EEPROM_CHECKSUM_ADDR, checksum);
+  commitEEPROMWithWatchdog("persistSlideConfig");
 }
 
 void persistMqttToStorage() {
@@ -785,6 +830,44 @@ void mqttCallback(char* topic, byte* payload, unsigned int length) {
       Serial.printf("MQTT: autobrightness -> %s\n", autoBrightnessEnabled ? "ON" : "OFF");
       changed = true;
     }
+  } else if (key == "temp") {
+    float v = value.toFloat();
+    if (v >= -40.0f && v <= 80.0f) {
+      g_sensorTemp = v;
+      Serial.printf("MQTT: temp -> %.1f\n", g_sensorTemp);
+      changed = true;
+    }
+  } else if (key == "humi") {
+    float v = value.toFloat();
+    if (v >= 0.0f && v <= 100.0f) {
+      g_sensorHumi = v;
+      Serial.printf("MQTT: humi -> %.1f\n", g_sensorHumi);
+      changed = true;
+    }
+  } else if (key == "clockdur") {
+    int v = value.toInt();
+    if (v >= 1 && v <= 3600) {
+      g_clockDur = (uint16_t)v;
+      persistSlideConfig();
+      Serial.printf("MQTT: clockdur -> %d\n", g_clockDur);
+      changed = true;
+    }
+  } else if (key == "tempdur") {
+    int v = value.toInt();
+    if (v >= 1 && v <= 3600) {
+      g_tempDur = (uint16_t)v;
+      persistSlideConfig();
+      Serial.printf("MQTT: tempdur -> %d\n", g_tempDur);
+      changed = true;
+    }
+  } else if (key == "humidur") {
+    int v = value.toInt();
+    if (v >= 1 && v <= 3600) {
+      g_humiDur = (uint16_t)v;
+      persistSlideConfig();
+      Serial.printf("MQTT: humidur -> %d\n", g_humiDur);
+      changed = true;
+    }
   } else {
     Serial.printf("MQTT: unknown key '%s'\n", key.c_str());
   }
@@ -1002,6 +1085,20 @@ void handleStatus() {
     heapKB = lastHeapBeforeRestart / 1024; // Bytes zu KB
   }
   
+  // SensorClock: Format-Strings für float-Werte (NaN -> "null")
+  char sensorTempStr[16];
+  char sensorHumiStr[16];
+  if (isnan(g_sensorTemp)) {
+    strncpy(sensorTempStr, "null", sizeof(sensorTempStr));
+  } else {
+    snprintf(sensorTempStr, sizeof(sensorTempStr), "%.1f", g_sensorTemp);
+  }
+  if (isnan(g_sensorHumi)) {
+    strncpy(sensorHumiStr, "null", sizeof(sensorHumiStr));
+  } else {
+    snprintf(sensorHumiStr, sizeof(sensorHumiStr), "%.1f", g_sensorHumi);
+  }
+
   // JSON-Response mit beiden Feldnamen (alte für Web-Interface, neue für HA-Integration)
   int jsonLen = snprintf(json, sizeof(json),
     "{\"time\":\"%s\",\"effect\":\"%s\",\"currentEffect\":\"%s\",\"tz\":\"%s\",\"timezone\":\"%s\",\"hourFormat\":\"%s\",\"use24HourFormat\":%s,\"brightness\":%d,"
@@ -1012,6 +1109,7 @@ void handleStatus() {
     "\"mqttPort\":%d,\"mqttBaseTopic\":\"%s\",\"mqttTopic\":\"%s\","
     "\"displayEnabled\":%s,"
     "\"availableEffects\":%s,"
+    "\"sensorTemp\":%s,\"sensorHumi\":%s,\"clockDur\":%u,\"tempDur\":%u,\"humiDur\":%u,"
     "\"otaEnabled\":%s,\"otaHostname\":\"%s\",\"ipAddress\":\"%s\","
     "\"firmwareVersion\":\"%s\",\"version\":\"%s\","
     "\"restartCount\":%lu,\"lastResetReason\":\"%s\","
@@ -1025,6 +1123,7 @@ void handleStatus() {
     mqttServer, mqttPort, mqttBaseTopic, mqttBaseTopic,
     displayEnabled ? "true" : "false",
     effectList.c_str(),
+    sensorTempStr, sensorHumiStr, g_clockDur, g_tempDur, g_humiDur,
     (WiFi.status() == WL_CONNECTED) ? "true" : "false", hostname, ipAddress.c_str(),
     FIRMWARE_VERSION, FIRMWARE_VERSION,
     restartCount, lastResetReason,
@@ -1219,6 +1318,10 @@ void handleSetMqtt() {
       server.send(400, "application/json", "{\"error\":\"MQTT topic string too long\"}");
       return;
     }
+    if (!isValidMqttBaseTopic(topicArg.c_str())) {
+      server.send(400, "application/json", "{\"error\":\"MQTT topic contains invalid characters (/, +, #)\"}");
+      return;
+    }
     copyServerArgToBuffer(topicArg, mqttBaseTopic, sizeof(mqttBaseTopic));
   }
 
@@ -1282,6 +1385,56 @@ void handleSetDisplay() {
   } else {
     server.send(400, "application/json", "{\"error\":\"Missing enabled parameter\"}");
   }
+}
+
+void handleSetSensorData() {
+  if (!checkRateLimit()) {
+    server.send(429, "application/json", "{\"error\":\"Too many requests\"}");
+    return;
+  }
+  if (!server.hasArg("temp") || !server.hasArg("humi") ||
+      server.arg("temp").length() == 0 || server.arg("humi").length() == 0) {
+    server.send(400, "application/json", "{\"error\":\"Missing parameters\"}");
+    return;
+  }
+  float newTemp = server.arg("temp").toFloat();
+  float newHumi = server.arg("humi").toFloat();
+  if (newTemp < -40.0f || newTemp > 80.0f) {
+    server.send(400, "application/json", "{\"error\":\"out_of_range\"}");
+    return;
+  }
+  if (newHumi < 0.0f || newHumi > 100.0f) {
+    server.send(400, "application/json", "{\"error\":\"out_of_range\"}");
+    return;
+  }
+  g_sensorTemp = newTemp;
+  g_sensorHumi = newHumi;
+  server.send(200, "application/json", "{\"ok\":true}");
+}
+
+void handleSetSlideConfig() {
+  if (!checkRateLimit()) {
+    server.send(429, "application/json", "{\"error\":\"Too many requests\"}");
+    return;
+  }
+  bool changed = false;
+  if (server.hasArg("clockDur")) {
+    int v = server.arg("clockDur").toInt();
+    if (v < 1 || v > 3600) { server.send(400, "application/json", "{\"error\":\"out_of_range\"}"); return; }
+    g_clockDur = (uint16_t)v; changed = true;
+  }
+  if (server.hasArg("tempDur")) {
+    int v = server.arg("tempDur").toInt();
+    if (v < 1 || v > 3600) { server.send(400, "application/json", "{\"error\":\"out_of_range\"}"); return; }
+    g_tempDur = (uint16_t)v; changed = true;
+  }
+  if (server.hasArg("humiDur")) {
+    int v = server.arg("humiDur").toInt();
+    if (v < 1 || v > 3600) { server.send(400, "application/json", "{\"error\":\"out_of_range\"}"); return; }
+    g_humiDur = (uint16_t)v; changed = true;
+  }
+  if (changed) persistSlideConfig();
+  server.send(200, "application/json", "{\"ok\":true}");
 }
 
 bool applyEffect(uint8_t idx) {
@@ -1782,6 +1935,8 @@ void setup() {
   server.on("/api/setAutoBrightness", handleSetAutoBrightness);
   server.on("/api/setMqtt", handleSetMqtt);
   server.on("/api/setDisplay", handleSetDisplay);  // HA-Integration Endpoint
+  server.on("/api/setSensorData",  handleSetSensorData);
+  server.on("/api/setSlideConfig", handleSetSlideConfig);
   server.on("/api/resetRestartCount", handleResetRestartCount);
   server.on("/effect/snake", []() { selectEffect(0); });
   server.on("/effect/clock", []() { selectEffect(1); });
@@ -1795,7 +1950,8 @@ void setup() {
   server.on("/effect/fire", []() { selectEffect(9); });
   server.on("/effect/plasma", []() { selectEffect(10); });
   server.on("/effect/ripple", []() { selectEffect(11); });
-  server.on("/effect/sandclock", []() { selectEffect(12); });
+  server.on("/effect/sandclock",    []() { selectEffect(12); });
+  server.on("/effect/sensorclock", []() { selectEffect(13); });
   server.on("/api/debuglog", []() {
     if (!SPIFFS.exists("/")) {
       server.send(503, "text/plain", "SPIFFS not available");
