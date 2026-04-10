@@ -95,6 +95,13 @@ const unsigned long MQTT_BACKOFF_MULTIPLIER = 2; // Verdoppeln bei jedem Fehlsch
 
 const unsigned long MQTT_CONNECT_TIMEOUT = 5000; // 5 Sekunden Timeout für Connect-Versuch
 
+// WiFi Reconnect mit Exponential Backoff
+unsigned long wifiReconnectBackoff = 5000;              // Start: 5 Sekunden
+const unsigned long WIFI_RECONNECT_MAX_BACKOFF = 60000; // Maximum: 60 Sekunden
+const unsigned long WIFI_RECONNECT_VERIFY_TIMEOUT = 8000; // Timeout für Verbindungsaufbau
+bool wifiReconnecting = false;
+unsigned long wifiReconnectStartMs = 0;
+
 // Brightness Konstanten
 const uint16_t PWM_MAX = 1023;              // Maximale PWM-Wert (ESP8266 analogWrite Range)
 const uint16_t DEFAULT_BRIGHTNESS = 512;    // Standard-Helligkeit (50% von PWM_MAX)
@@ -2187,45 +2194,40 @@ void loop() {
     }
   }
 
-  if (timeDiff(millis(), lastWiFiCheck) > 30000) {
-    if (WiFi.status() != WL_CONNECTED) {
-      Serial.println("WiFi lost, reconnecting...");
-      
-      // Kritische Operation: WiFi-Reconnect
-      strncpy(lastOperation, "WiFi.reconnect", sizeof(lastOperation) - 1);
-      lastOperation[sizeof(lastOperation) - 1] = '\0';
-      debugLogJson("loop", "WiFi reconnect start", "C", "{\"freeHeap\":%d}", ESP.getFreeHeap());
-      
-#ifdef DEBUG_LOGGING_ENABLED
-      unsigned long wifiReconnectStart = millis();
-      int freeHeapBefore = ESP.getFreeHeap();
-      int maxFreeBlockBefore = ESP.getMaxFreeBlockSize();
-#endif
-      ESP.wdtFeed(); // Watchdog vor blockierender Operation füttern
-      WiFi.reconnect();
-      ESP.wdtFeed(); // Watchdog nach blockierender Operation füttern
-      
-#ifdef DEBUG_LOGGING_ENABLED
-      unsigned long wifiReconnectDuration = millis() - wifiReconnectStart;
-      int freeHeapAfter = ESP.getFreeHeap();
-      int maxFreeBlockAfter = ESP.getMaxFreeBlockSize();
-      debugLogJson("loop", "WiFi reconnect end", "C", "{\"duration\":%lu,\"freeHeapBefore\":%d,\"freeHeapAfter\":%d,\"status\":%d}", 
-                   wifiReconnectDuration, freeHeapBefore, freeHeapAfter, WiFi.status());
-      if (wifiReconnectDuration > 1000 || freeHeapBefore != freeHeapAfter) {
-        if (SPIFFS.exists("/")) {
-          File logFile = SPIFFS.open("/debug.log", "a");
-          if (logFile) {
-            logFile.printf("{\"id\":\"wifi_reconnect_%lu\",\"timestamp\":%lu,\"location\":\"loop\",\"message\":\"WiFi reconnect\",\"data\":{\"duration\":%lu,\"freeHeapBefore\":%d,\"freeHeapAfter\":%d,\"maxFreeBlockBefore\":%d,\"maxFreeBlockAfter\":%d},\"sessionId\":\"debug-session\",\"runId\":\"run1\",\"hypothesisId\":\"C\"}\n",
-                           millis(), millis(), wifiReconnectDuration, freeHeapBefore, freeHeapAfter, maxFreeBlockBefore, maxFreeBlockAfter);
-            logFile.close();
-          }
+  {
+    unsigned long wifiCheckInterval = wifiReconnecting
+      ? 500UL
+      : (WiFi.status() == WL_CONNECTED ? 30000UL : wifiReconnectBackoff);
+
+    if (timeDiff(millis(), lastWiFiCheck) > wifiCheckInterval) {
+      wl_status_t wifiStatus = WiFi.status();
+
+      if (wifiReconnecting) {
+        if (wifiStatus == WL_CONNECTED) {
+          wifiReconnecting = false;
+          wifiReconnectBackoff = 5000;
+          Serial.printf("[WiFi] Reconnected! IP: %s\n", WiFi.localIP().toString().c_str());
+          ntpConfigured = false;
+        } else if (timeDiff(millis(), wifiReconnectStartMs) > WIFI_RECONNECT_VERIFY_TIMEOUT) {
+          wifiReconnecting = false;
+          wifiReconnectBackoff = min(wifiReconnectBackoff * 2UL, WIFI_RECONNECT_MAX_BACKOFF);
+          Serial.printf("[WiFi] Reconnect timed out, next attempt in %lus\n",
+                        wifiReconnectBackoff / 1000UL);
         }
+      } else if (wifiStatus != WL_CONNECTED) {
+        Serial.println("[WiFi] Connection lost, starting reconnect...");
+        strncpy(lastOperation, "WiFi.begin", sizeof(lastOperation) - 1);
+        lastOperation[sizeof(lastOperation) - 1] = '\0';
+        serverStarted = false;
+        ntpConfigured = false;
+        ESP.wdtFeed();
+        WiFi.begin(ssid, password);
+        wifiReconnecting = true;
+        wifiReconnectStartMs = millis();
       }
-#endif
-      serverStarted = false;
-      ntpConfigured = false;
+
+      lastWiFiCheck = millis();
     }
-    lastWiFiCheck = millis();
   }
 
   if (!serverStarted && WiFi.status() == WL_CONNECTED) {
