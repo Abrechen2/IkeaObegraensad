@@ -1140,6 +1140,19 @@ void handleStatus() {
   server.send(200, "application/json", json);
 }
 
+// Prüft ob ein POSIX-TZ-String grundlegend gültig aussieht.
+// Schützt setenv()/tzset() vor offensichtlich defekten Eingaben.
+// Regeln: mindestens 3 Zeichen, nur druckbare ASCII-Zeichen (0x20-0x7E), keine Anführungszeichen.
+bool isValidTzString(const char* tz) {
+  if (tz == nullptr || strlen(tz) < 3) return false;
+  for (size_t i = 0; tz[i] != '\0'; i++) {
+    char c = tz[i];
+    if (c < 0x20 || c > 0x7E) return false;
+    if (c == '"' || c == '\'') return false;
+  }
+  return true;
+}
+
 void handleSetTimezone() {
   if (!checkRateLimit()) {
     server.send(429, "application/json", "{\"error\":\"Too many requests\"}");
@@ -1147,6 +1160,10 @@ void handleSetTimezone() {
   }
   if (server.hasArg("tz")) {
     String tzArg = server.arg("tz");
+    if (!isValidTzString(tzArg.c_str())) {
+      server.send(400, "application/json", "{\"error\":\"Invalid TZ string\"}");
+      return;
+    }
     size_t tzLen = min(tzArg.length(), (size_t)(INPUT_TZ_MAX - 1));
     strncpy(tzString, tzArg.c_str(), tzLen);
     tzString[tzLen] = '\0';
