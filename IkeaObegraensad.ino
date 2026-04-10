@@ -591,6 +591,15 @@ void persistUptimeHeapStatus() {
   ESP.wdtFeed();
 }
 
+void persistNtpToStorage() {
+  ensureEEPROMInitialized();
+  writeStringToEEPROM(EEPROM_NTP_SERVER1_ADDR, ntpServer1, EEPROM_NTP_SERVER_LEN + 1);
+  writeStringToEEPROM(EEPROM_NTP_SERVER2_ADDR, ntpServer2, EEPROM_NTP_SERVER_LEN + 1);
+  uint16_t checksum = calculateEEPROMChecksum();
+  EEPROM.put(EEPROM_CHECKSUM_ADDR, checksum);
+  commitEEPROMWithWatchdog("persistNtpToStorage");
+}
+
 // VERBESSERT: Non-blocking Sensor-Sampling (verhindert Watchdog-Resets)
 // Startet einen neuen Sample-Zyklus
 void startLightSensorSampling() {
