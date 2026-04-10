@@ -170,8 +170,8 @@ inline void SandClockEffect::updatePhysics() {
     grains[i].y += grains[i].vy;
     
     // Kollision mit Boden
-    if (grains[i].y >= 15.5) {
-      grains[i].y = 15.5;
+    if (grains[i].y >= 15.0f) {
+      grains[i].y = 15.0f;
       grains[i].vy = 0;
       grains[i].vx *= 0.8; // Reibung
       grains[i].settleTime++;
