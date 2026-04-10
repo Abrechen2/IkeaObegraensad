@@ -2142,8 +2142,8 @@ void setup() {
     char newTz        [INPUT_TZ_MAX]          = "";
     char newNtp1      [INPUT_NTP_SERVER_MAX]  = "";
     char newNtp2      [INPUT_NTP_SERVER_MAX]  = "";
-    extractJsonStr(jsonData, "mqttServer",    newMqttServer, sizeof(newMqttServer));
-    extractJsonStr(jsonData, "mqttUser",      newMqttUser,   sizeof(newMqttUser));
+    bool mqttServerFound = extractJsonStr(jsonData, "mqttServer",    newMqttServer, sizeof(newMqttServer));
+    bool mqttUserFound   = extractJsonStr(jsonData, "mqttUser",      newMqttUser,   sizeof(newMqttUser));
     extractJsonStr(jsonData, "mqttBaseTopic", newMqttTopic,  sizeof(newMqttTopic));
     extractJsonStr(jsonData, "tz",            newTz,         sizeof(newTz));
     extractJsonStr(jsonData, "ntpServer1",    newNtp1,       sizeof(newNtp1));
@@ -2176,8 +2176,8 @@ void setup() {
     mqttEnabled           = newMqttEnabled;
     use24HourFormat       = newUse24h;
     mqttPort              = (uint16_t)newMqttPort;
-    if (strlen(newMqttServer) > 0) { strncpy(mqttServer,   newMqttServer, sizeof(mqttServer)   - 1); mqttServer  [sizeof(mqttServer)   - 1] = '\0'; }
-    if (strlen(newMqttUser)   > 0) { strncpy(mqttUser,     newMqttUser,   sizeof(mqttUser)     - 1); mqttUser    [sizeof(mqttUser)     - 1] = '\0'; }
+    if (mqttServerFound)          { strncpy(mqttServer,   newMqttServer, sizeof(mqttServer)   - 1); mqttServer  [sizeof(mqttServer)   - 1] = '\0'; }
+    if (mqttUserFound)            { strncpy(mqttUser,     newMqttUser,   sizeof(mqttUser)     - 1); mqttUser    [sizeof(mqttUser)     - 1] = '\0'; }
     if (strlen(newMqttTopic)  > 0) { strncpy(mqttBaseTopic,newMqttTopic,  sizeof(mqttBaseTopic)- 1); mqttBaseTopic[sizeof(mqttBaseTopic)- 1] = '\0'; }
     if (strlen(newTz)         > 0) { strncpy(tzString,     newTz,         sizeof(tzString)     - 1); tzString    [sizeof(tzString)     - 1] = '\0'; }
     if (strlen(newNtp1) > 0 && strchr(newNtp1, '.') != nullptr) { strncpy(ntpServer1, newNtp1, sizeof(ntpServer1) - 1); ntpServer1[sizeof(ntpServer1) - 1] = '\0'; }
