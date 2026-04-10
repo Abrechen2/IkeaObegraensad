@@ -21,6 +21,12 @@ extern "C" {
 // Firmware-Version
 #define FIRMWARE_VERSION "1.6.2"
 
+// === Lokaler Sensor ===
+// Eine Zeile einkommentieren, oder beide auskommentiert lassen (MQTT-only):
+// #define LOCAL_SENSOR_BME280           // BME280 via I2C (SDA=D2/GPIO4, SCL=D1/GPIO5)
+// #define LOCAL_SENSOR_DHT22            // DHT22 single-wire
+// #define LOCAL_SENSOR_DHT_PIN 14       // Optional: DHT22 Pin überschreiben (default D5/GPIO14)
+
 #include "Matrix.h"
 #include "Effect.h"
 #include "Snake.h"
@@ -39,6 +45,7 @@ extern "C" {
 #include "Ripple.h"
 #include "SandClock.h"
 #include "SensorClock.h"
+#include "LocalSensor.h"
 #include "Logging.h"
 
 ESP8266WebServer server(80);
@@ -1147,7 +1154,8 @@ void handleStatus() {
     "\"firmwareVersion\":\"%s\",\"version\":\"%s\","
     "\"restartCount\":%lu,\"lastResetReason\":\"%s\","
     "\"lastUptimeBeforeRestart\":%lu,\"lastHeapBeforeRestart\":%u,"
-    "\"lastUptimeBeforeRestartHours\":%u,\"lastUptimeBeforeRestartMinutes\":%u,\"lastHeapBeforeRestartKB\":%u}",
+    "\"lastUptimeBeforeRestartHours\":%u,\"lastUptimeBeforeRestartMinutes\":%u,\"lastHeapBeforeRestartKB\":%u,"
+    "\"localSensor\":\"" LOCAL_SENSOR_NAME "\"}",
     buf, currentEffect->name, currentEffect->name, tzString, tzString, hourFormatStr, use24HourFormat ? "true" : "false", brightness,
     autoBrightnessEnabled ? "true" : "false", autoBrightnessEnabled ? "true" : "false", minBrightness, maxBrightness,
     minBrightness, maxBrightness, sensorMin, sensorMax,
@@ -2221,6 +2229,7 @@ void setup() {
     Serial.println("MQTT disabled");
   }
 
+  LocalSensor::begin();
   applyEffect(currentEffectIndex);
 }
 
@@ -2293,7 +2302,8 @@ void loop() {
 
   server.handleClient();
   yield();
-  
+  LocalSensor::update();
+
   // ArduinoOTA Handler (muss regelmäßig aufgerufen werden)
   if (WiFi.status() == WL_CONNECTED) {
     ArduinoOTA.handle();
