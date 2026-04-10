@@ -1786,6 +1786,44 @@ void checkNtpSync() {
   lastValidTime = currentTime;
 }
 
+// JSON-Parsing Helpers für handleRestore() — kein ArduinoJson nötig
+static int extractJsonInt(const String& json, const char* key, int defaultVal) {
+  String search = String("\"") + key + "\":";
+  int pos = json.indexOf(search);
+  if (pos < 0) return defaultVal;
+  int start = pos + search.length();
+  while (start < (int)json.length() && json[start] == ' ') start++;
+  int end = start;
+  if (end < (int)json.length() && json[end] == '-') end++;
+  while (end < (int)json.length() && isDigit(json[end])) end++;
+  if (end == start) return defaultVal;
+  return json.substring(start, end).toInt();
+}
+
+static bool extractJsonBool(const String& json, const char* key, bool defaultVal) {
+  String search = String("\"") + key + "\":";
+  int pos = json.indexOf(search);
+  if (pos < 0) return defaultVal;
+  int start = pos + search.length();
+  while (start < (int)json.length() && json[start] == ' ') start++;
+  if (json.substring(start, start + 4) == "true")  return true;
+  if (json.substring(start, start + 5) == "false") return false;
+  return defaultVal;
+}
+
+static bool extractJsonStr(const String& json, const char* key, char* buf, size_t bufSize) {
+  String search = String("\"") + key + "\":\"";
+  int pos = json.indexOf(search);
+  if (pos < 0) return false;
+  int start = pos + search.length();
+  int end = json.indexOf('"', start);
+  if (end < 0) return false;
+  int len = min((int)(end - start), (int)(bufSize - 1));
+  json.substring(start, start + len).toCharArray(buf, bufSize);
+  buf[bufSize - 1] = '\0';
+  return true;
+}
+
 void setup() {
   Serial.begin(115200);
   Serial.printf("Starting up... Free heap: %d bytes\n", ESP.getFreeHeap());
@@ -2087,15 +2125,84 @@ void setup() {
       return;
     }
     
-    // Parse einzelne Werte (vereinfachte Implementierung)
-    // In Produktion sollte eine JSON-Bibliothek verwendet werden
-    // Hier nur grundlegende Validierung und Warnung
-    Serial.println("Restore request received (basic validation only)");
-    Serial.printf("Backup data length: %d\n", jsonData.length());
-    
-    // Für vollständige Implementierung: JSON-Bibliothek verwenden
-    // Hier nur Bestätigung senden
-    server.send(200, "application/json", "{\"status\":\"restore_not_fully_implemented\",\"message\":\"Basic validation passed. Full restore requires JSON library.\"}");
+    // 1. Felder extrahieren
+    int  newBrightness     = extractJsonInt (jsonData, "brightness",      brightness);
+    bool newAutoBrightness = extractJsonBool(jsonData, "autoBrightness",  autoBrightnessEnabled);
+    int  newMinBrightness  = extractJsonInt (jsonData, "minBrightness",   minBrightness);
+    int  newMaxBrightness  = extractJsonInt (jsonData, "maxBrightness",   maxBrightness);
+    int  newSensorMin      = extractJsonInt (jsonData, "sensorMin",       sensorMin);
+    int  newSensorMax      = extractJsonInt (jsonData, "sensorMax",       sensorMax);
+    bool newMqttEnabled    = extractJsonBool(jsonData, "mqttEnabled",     mqttEnabled);
+    bool newUse24h         = extractJsonBool(jsonData, "use24HourFormat", use24HourFormat);
+    int  newMqttPort       = extractJsonInt (jsonData, "mqttPort",        mqttPort);
+
+    char newMqttServer[INPUT_MQTT_SERVER_MAX] = "";
+    char newMqttUser  [INPUT_MQTT_USER_MAX]   = "";
+    char newMqttTopic [INPUT_MQTT_TOPIC_MAX]  = "";
+    char newTz        [INPUT_TZ_MAX]          = "";
+    char newNtp1      [INPUT_NTP_SERVER_MAX]  = "";
+    char newNtp2      [INPUT_NTP_SERVER_MAX]  = "";
+    extractJsonStr(jsonData, "mqttServer",    newMqttServer, sizeof(newMqttServer));
+    extractJsonStr(jsonData, "mqttUser",      newMqttUser,   sizeof(newMqttUser));
+    extractJsonStr(jsonData, "mqttBaseTopic", newMqttTopic,  sizeof(newMqttTopic));
+    extractJsonStr(jsonData, "tz",            newTz,         sizeof(newTz));
+    extractJsonStr(jsonData, "ntpServer1",    newNtp1,       sizeof(newNtp1));
+    extractJsonStr(jsonData, "ntpServer2",    newNtp2,       sizeof(newNtp2));
+
+    // 2. Validieren
+    newBrightness    = constrain(newBrightness,    0, (int)PWM_MAX);
+    newMinBrightness = constrain(newMinBrightness, 0, (int)PWM_MAX);
+    newMaxBrightness = constrain(newMaxBrightness, 0, (int)PWM_MAX);
+    newSensorMin     = constrain(newSensorMin,     0, (int)PWM_MAX);
+    newSensorMax     = constrain(newSensorMax,     0, (int)PWM_MAX);
+    newMqttPort      = (newMqttPort > 0 && newMqttPort <= 65535) ? newMqttPort : (int)MQTT_PORT_DEFAULT;
+
+    if (strlen(newMqttTopic) > 0 && !isValidMqttBaseTopic(newMqttTopic)) {
+      server.send(400, "application/json", "{\"error\":\"Invalid MQTT topic in backup\"}");
+      return;
+    }
+    if (strlen(newTz) > 0 && !isValidTzString(newTz)) {
+      server.send(400, "application/json", "{\"error\":\"Invalid TZ string in backup\"}");
+      return;
+    }
+
+    // 3. Globals setzen
+    brightness            = (uint16_t)newBrightness;
+    autoBrightnessEnabled = newAutoBrightness;
+    minBrightness         = (uint16_t)newMinBrightness;
+    maxBrightness         = (uint16_t)newMaxBrightness;
+    sensorMin             = (uint16_t)newSensorMin;
+    sensorMax             = (uint16_t)newSensorMax;
+    mqttEnabled           = newMqttEnabled;
+    use24HourFormat       = newUse24h;
+    mqttPort              = (uint16_t)newMqttPort;
+    if (strlen(newMqttServer) > 0) { strncpy(mqttServer,   newMqttServer, sizeof(mqttServer)   - 1); mqttServer  [sizeof(mqttServer)   - 1] = '\0'; }
+    if (strlen(newMqttUser)   > 0) { strncpy(mqttUser,     newMqttUser,   sizeof(mqttUser)     - 1); mqttUser    [sizeof(mqttUser)     - 1] = '\0'; }
+    if (strlen(newMqttTopic)  > 0) { strncpy(mqttBaseTopic,newMqttTopic,  sizeof(mqttBaseTopic)- 1); mqttBaseTopic[sizeof(mqttBaseTopic)- 1] = '\0'; }
+    if (strlen(newTz)         > 0) { strncpy(tzString,     newTz,         sizeof(tzString)     - 1); tzString    [sizeof(tzString)     - 1] = '\0'; }
+    if (strlen(newNtp1) > 0 && strchr(newNtp1, '.') != nullptr) { strncpy(ntpServer1, newNtp1, sizeof(ntpServer1) - 1); ntpServer1[sizeof(ntpServer1) - 1] = '\0'; }
+    if (strlen(newNtp2) > 0 && strchr(newNtp2, '.') != nullptr) { strncpy(ntpServer2, newNtp2, sizeof(ntpServer2) - 1); ntpServer2[sizeof(ntpServer2) - 1] = '\0'; }
+
+    // 4. Persistieren
+    persistBrightnessToStorage();
+    persistMqttToStorage();
+    persistNtpToStorage();
+
+    // 5. Runtime anwenden
+    analogWrite(PIN_ENABLE, PWM_MAX - brightness);
+    setupTimezone();
+    ntpConfigured = false;
+    if (mqttEnabled && strlen(mqttServer) > 0) {
+      mqttClient.disconnect();
+      mqttClient.setServer(mqttServer, mqttPort);
+      mqttClient.setCallback(mqttCallback);
+    }
+
+    // 6. Antworten und neu starten
+    server.send(200, "application/json",
+      "{\"status\":\"ok\",\"message\":\"Settings restored, rebooting...\"}");
+    delay(500);
+    ESP.restart();
   });
   if (wifiConnected) {
     server.begin();
