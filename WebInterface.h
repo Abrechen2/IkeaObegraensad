@@ -1739,7 +1739,9 @@ const char WEB_INTERFACE_HTML[] PROGMEM = R"rawl(
       const clockDur = parseInt(scClockDurInput.value);
       const tempDur = parseInt(scTempDurInput.value);
       const humiDur = parseInt(scHumiDurInput.value);
-      if (clockDur < 1 || clockDur > 3600 || tempDur < 1 || tempDur > 3600 || humiDur < 1 || humiDur > 3600) {
+      if (isNaN(clockDur) || clockDur < 1 || clockDur > 3600 ||
+          isNaN(tempDur)  || tempDur  < 1 || tempDur  > 3600 ||
+          isNaN(humiDur)  || humiDur  < 1 || humiDur  > 3600) {
         showToast('Alle Dauern müssen zwischen 1 und 3600 Sekunden liegen.', 'error');
         return;
       }
