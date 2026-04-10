@@ -61,7 +61,7 @@ namespace LocalSensor {
   inline void update() {
     if (!_available) return;
     static unsigned long _lastRead = 0;
-    if (millis() - _lastRead < 10000UL) return;
+    if (millis() - _lastRead < 10000UL) return;  // unsigned wrap is safe; can't use timeDiff() (include order)
     _lastRead = millis();
 
     #if defined(LOCAL_SENSOR_BME280)
@@ -72,9 +72,10 @@ namespace LocalSensor {
       float h = _dht.readHumidity();
     #endif
 
-    if (!isnan(t)) g_sensorTemp = t;
-    if (!isnan(h)) g_sensorHumi = h;
-    Serial.printf("[LocalSensor] T=%.1f H=%.1f\n", g_sensorTemp, g_sensorHumi);
+    bool updated = false;
+    if (!isnan(t)) { g_sensorTemp = t; updated = true; }
+    if (!isnan(h)) { g_sensorHumi = h; updated = true; }
+    if (updated) Serial.printf("[LocalSensor] T=%.1f H=%.1f\n", g_sensorTemp, g_sensorHumi);
   }
 
   inline bool isAvailable() { return _available; }
