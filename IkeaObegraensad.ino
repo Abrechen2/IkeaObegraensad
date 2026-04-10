@@ -884,13 +884,30 @@ void publishMqttState() {
   }
   char stateTopic[INPUT_MQTT_TOPIC_MAX + 8];
   snprintf(stateTopic, sizeof(stateTopic), "%s/state", mqttBaseTopic);
-  char payload[192];
+
+  char tempStr[12];
+  char humiStr[12];
+  if (isnan(g_sensorTemp)) {
+    strncpy(tempStr, "null", sizeof(tempStr));
+  } else {
+    snprintf(tempStr, sizeof(tempStr), "%.1f", g_sensorTemp);
+  }
+  if (isnan(g_sensorHumi)) {
+    strncpy(humiStr, "null", sizeof(humiStr));
+  } else {
+    snprintf(humiStr, sizeof(humiStr), "%.1f", g_sensorHumi);
+  }
+
+  char payload[256];
   snprintf(payload, sizeof(payload),
-    "{\"display\":%s,\"effect\":\"%s\",\"brightness\":%d,\"autoBrightness\":%s}",
+    "{\"display\":%s,\"effect\":\"%s\",\"brightness\":%d,\"autoBrightness\":%s,"
+    "\"sensorTemp\":%s,\"sensorHumi\":%s,\"clockDur\":%u,\"tempDur\":%u,\"humiDur\":%u}",
     displayEnabled ? "true" : "false",
     currentEffect ? currentEffect->name : "",
     brightness,
-    autoBrightnessEnabled ? "true" : "false");
+    autoBrightnessEnabled ? "true" : "false",
+    tempStr, humiStr,
+    g_clockDur, g_tempDur, g_humiDur);
   mqttClient.publish(stateTopic, payload, true);
   mqttStateDirty = false;
 }
