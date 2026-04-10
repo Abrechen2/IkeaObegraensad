@@ -952,6 +952,9 @@ const char WEB_INTERFACE_HTML[] PROGMEM = R"rawl(
         <div class="effect-card" data-effect="sandclock" role="button" tabindex="0" aria-label="Sand Clock Effekt">
           <span>Sand Clock</span>
         </div>
+        <div class="effect-card" data-effect="sensorclock" role="button" tabindex="0" aria-label="Sensor Clock Effekt">
+          <span>Sensor Clock</span>
+        </div>
       </div>
       <div style="margin-top: var(--spacing-2);">
         <div class="grid" style="gap: var(--spacing-2); grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));">
@@ -984,6 +987,55 @@ const char WEB_INTERFACE_HTML[] PROGMEM = R"rawl(
         <button id="setTz" aria-label="Zeitzone und Zeitformat aktualisieren">Zeitzone & Zeitformat speichern</button>
       </div>
     </section>
+
+    <div class="accordion" role="region" aria-label="Sensor Clock Konfiguration">
+      <div class="accordion-header" role="button" tabindex="0" aria-expanded="false" aria-controls="sensorClockContent">
+        <h3>Sensor Clock Konfiguration</h3>
+        <span class="accordion-icon" aria-hidden="true">▼</span>
+      </div>
+      <div class="accordion-content" id="sensorClockContent">
+        <div style="display:flex; gap: var(--spacing-4); margin-bottom: var(--spacing-3); flex-wrap: wrap;">
+          <span>Temperatur: <strong id="scTempDisplay">--</strong> &#176;C</span>
+          <span>Luftfeuchtigkeit: <strong id="scHumiDisplay">--</strong> %</span>
+        </div>
+        <div class="grid" style="gap: var(--spacing-2); grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); margin-bottom: var(--spacing-3);">
+          <div>
+            <label for="scTemp">Temperatur (&#176;C)</label>
+            <input id="scTemp" type="number" min="-40" max="80" step="0.1" placeholder="-40 bis 80" aria-label="Temperatur eingeben">
+          </div>
+          <div>
+            <label for="scHumi">Luftfeuchtigkeit (%)</label>
+            <input id="scHumi" type="number" min="0" max="100" step="0.1" placeholder="0 bis 100" aria-label="Luftfeuchtigkeit eingeben">
+          </div>
+        </div>
+        <button id="saveSensorData" aria-label="Sensordaten senden">Sensordaten senden</button>
+        <hr style="margin: var(--spacing-4) 0; border-color: var(--border);">
+        <div class="grid" style="gap: var(--spacing-2);">
+          <div class="range-wrapper">
+            <label for="scClockDur">Uhr-Folie (Sekunden)</label>
+            <div class="range-control">
+              <input id="scClockDur" type="range" min="1" max="3600" step="1" aria-label="Uhr-Folie Dauer">
+              <input id="scClockDurInput" type="number" min="1" max="3600" step="1" value="10" aria-label="Uhr-Folie Dauer numerisch">
+            </div>
+          </div>
+          <div class="range-wrapper">
+            <label for="scTempDur">Temperatur-Folie (Sekunden)</label>
+            <div class="range-control">
+              <input id="scTempDur" type="range" min="1" max="3600" step="1" aria-label="Temperatur-Folie Dauer">
+              <input id="scTempDurInput" type="number" min="1" max="3600" step="1" value="5" aria-label="Temperatur-Folie Dauer numerisch">
+            </div>
+          </div>
+          <div class="range-wrapper">
+            <label for="scHumiDur">Luftfeuchtigkeits-Folie (Sekunden)</label>
+            <div class="range-control">
+              <input id="scHumiDur" type="range" min="1" max="3600" step="1" aria-label="Luftfeuchtigkeits-Folie Dauer">
+              <input id="scHumiDurInput" type="number" min="1" max="3600" step="1" value="5" aria-label="Luftfeuchtigkeits-Folie Dauer numerisch">
+            </div>
+          </div>
+        </div>
+        <button id="saveSlideConfig" style="margin-top: var(--spacing-3);" aria-label="Foliendauern speichern">Foliendauern speichern</button>
+      </div>
+    </div>
 
     <section class="card" role="region" aria-label="Manuelle Helligkeit">
       <div class="card-header">
@@ -1167,7 +1219,8 @@ const char WEB_INTERFACE_HTML[] PROGMEM = R"rawl(
       fire: 'Fire',
       plasma: 'Plasma',
       ripple: 'Ripple',
-      sandclock: 'Sand Clock'
+      sandclock: 'Sand Clock',
+      sensorclock: 'Sensor Clock'
     };
 
     function setActiveEffect(effect) {
@@ -1230,6 +1283,18 @@ const char WEB_INTERFACE_HTML[] PROGMEM = R"rawl(
     const otaStatusEl = document.getElementById('otaStatus');
     const ipAddressEl = document.getElementById('ipAddress');
     const restartCountEl = document.getElementById('restartCount');
+    const scTempDisplay = document.getElementById('scTempDisplay');
+    const scHumiDisplay = document.getElementById('scHumiDisplay');
+    const scTempInput = document.getElementById('scTemp');
+    const scHumiInput = document.getElementById('scHumi');
+    const saveSensorDataBtn = document.getElementById('saveSensorData');
+    const scClockDurSlider = document.getElementById('scClockDur');
+    const scClockDurInput = document.getElementById('scClockDurInput');
+    const scTempDurSlider = document.getElementById('scTempDur');
+    const scTempDurInput = document.getElementById('scTempDurInput');
+    const scHumiDurSlider = document.getElementById('scHumiDur');
+    const scHumiDurInput = document.getElementById('scHumiDurInput');
+    const saveSlideConfigBtn = document.getElementById('saveSlideConfig');
     const lastResetReasonEl = document.getElementById('lastResetReason');
 
     let brightnessDebounce;
@@ -1331,6 +1396,15 @@ const char WEB_INTERFACE_HTML[] PROGMEM = R"rawl(
         } else if (data.mqttTopic !== undefined) {
           mqttTopicInput.value = data.mqttTopic;
         }
+        if (data.clockDur !== undefined) {
+          syncSliderInput(scClockDurSlider, scClockDurInput, data.clockDur);
+        }
+        if (data.tempDur !== undefined) {
+          syncSliderInput(scTempDurSlider, scTempDurInput, data.tempDur);
+        }
+        if (data.humiDur !== undefined) {
+          syncSliderInput(scHumiDurSlider, scHumiDurInput, data.humiDur);
+        }
       } catch (error) {
         showToast('Settings konnte nicht geladen werden. ' + error.message, 'error');
       }
@@ -1377,6 +1451,16 @@ const char WEB_INTERFACE_HTML[] PROGMEM = R"rawl(
           const status = data.displayEnabled ? 'An' : 'Aus';
           displayStatusEl.textContent = status;
           updateStatusBadge(displayStatusEl, data.displayEnabled ? 'success' : 'error', status);
+        }
+        if (data.sensorTemp !== undefined && data.sensorTemp !== null) {
+          scTempDisplay.textContent = parseFloat(data.sensorTemp).toFixed(1);
+        } else {
+          scTempDisplay.textContent = '--';
+        }
+        if (data.sensorHumi !== undefined && data.sensorHumi !== null) {
+          scHumiDisplay.textContent = parseFloat(data.sensorHumi).toFixed(1);
+        } else {
+          scHumiDisplay.textContent = '--';
         }
 
         if (data.otaEnabled !== undefined) {
@@ -1624,6 +1708,60 @@ const char WEB_INTERFACE_HTML[] PROGMEM = R"rawl(
 
     saveAutoButton.addEventListener('click', () => {
       saveAutoBrightness();
+    });
+
+    saveSensorDataBtn.addEventListener('click', async () => {
+      const temp = parseFloat(scTempInput.value);
+      const humi = parseFloat(scHumiInput.value);
+      if (isNaN(temp) || temp < -40 || temp > 80) {
+        showToast('Temperatur muss zwischen -40 und 80 liegen.', 'error');
+        return;
+      }
+      if (isNaN(humi) || humi < 0 || humi > 100) {
+        showToast('Luftfeuchtigkeit muss zwischen 0 und 100 liegen.', 'error');
+        return;
+      }
+      try {
+        setButtonLoading(saveSensorDataBtn, true);
+        const r = await fetch('/api/setSensorData?temp=' + temp.toFixed(1) + '&humi=' + humi.toFixed(1));
+        if (!r.ok) throw new Error('HTTP ' + r.status);
+        scTempDisplay.textContent = temp.toFixed(1);
+        scHumiDisplay.textContent = humi.toFixed(1);
+        showToast('Sensordaten gesendet.', 'success');
+      } catch (error) {
+        showToast('Sensordaten konnten nicht gesendet werden.', 'error');
+      } finally {
+        setButtonLoading(saveSensorDataBtn, false);
+      }
+    });
+
+    saveSlideConfigBtn.addEventListener('click', async () => {
+      const clockDur = parseInt(scClockDurInput.value);
+      const tempDur = parseInt(scTempDurInput.value);
+      const humiDur = parseInt(scHumiDurInput.value);
+      if (clockDur < 1 || clockDur > 3600 || tempDur < 1 || tempDur > 3600 || humiDur < 1 || humiDur > 3600) {
+        showToast('Alle Dauern müssen zwischen 1 und 3600 Sekunden liegen.', 'error');
+        return;
+      }
+      try {
+        setButtonLoading(saveSlideConfigBtn, true);
+        const r = await fetch('/api/setSlideConfig?clockDur=' + clockDur + '&tempDur=' + tempDur + '&humiDur=' + humiDur);
+        if (!r.ok) throw new Error('HTTP ' + r.status);
+        showToast('Foliendauern gespeichert.', 'success');
+      } catch (error) {
+        showToast('Foliendauern konnten nicht gespeichert werden.', 'error');
+      } finally {
+        setButtonLoading(saveSlideConfigBtn, false);
+      }
+    });
+
+    [scClockDurSlider, scTempDurSlider, scHumiDurSlider].forEach(slider => {
+      const input = document.getElementById(slider.id + 'Input');
+      slider.addEventListener('input', () => { input.value = slider.value; });
+      input.addEventListener('input', () => {
+        const v = parseInt(input.value);
+        if (v >= 1 && v <= 3600) slider.value = v;
+      });
     });
 
     mqttEnabledCheckbox.addEventListener('focus', () => editingFields.add('mqttEnabled'));
