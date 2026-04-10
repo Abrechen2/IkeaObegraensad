@@ -122,9 +122,9 @@ Diese Roadmap enthält geplante Verbesserungen und Ideen für zukünftige Versio
   - `POST /api/restore` parst JSON aktuell nicht vollständig (Stub vorhanden)
   - Datei: `IkeaObegraensad.ino` `handleRestore()`
 
-- [ ] **Home Assistant Auto-Discovery**
-  - MQTT Discovery-Topics damit HA die Uhr automatisch erkennt
-  - Datei: `IkeaObegraensad.ino` MQTT-Sektion
+- [x] **Home Assistant Auto-Discovery**
+  - Erledigt via separatem HACS-Integration-Repo (`ikea-obegraensad-homeassistant`)
+  - Nutzt HTTP-Polling + mDNS statt MQTT — vollständige HA-Integration ohne manuelle Konfiguration
 
 - [ ] **Effekt-Editor im Web-Interface**
   - Visueller Editor, Code-Generator, Echtzeit-Vorschau
@@ -192,7 +192,7 @@ Diese Roadmap enthält geplante Verbesserungen und Ideen für zukünftige Versio
 **Höchste Priorität:**
 1. WiFi-Reconnect robuster (Stabilität)
 2. Restore-Feature vervollständigen (Backup/Restore funktioniert aktuell nur halb)
-3. Home Assistant Auto-Discovery (größter Nutzen für HA-Nutzer)
+3. Lokale Sensoren direkt anschließen (SensorClock unabhängig von HA)
 
 **Mittlere Priorität:**
 1. Scheduler für Effekte
