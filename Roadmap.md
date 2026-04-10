@@ -2,304 +2,209 @@
 
 Diese Roadmap enthält geplante Verbesserungen und Ideen für zukünftige Versionen.
 
-## 🚀 Kurzfristig (v1.5.x)
+## ✅ Bereits erledigt
+
+### v1.5.x
+- [x] **EEPROM-Versionierung & Migration** (v3-Layout mit Checksumme, DST-TZ-Migration)
+- [x] **Auto-Brightness mit EMA** (Exponential Moving Average, non-blocking Sampling)
+- [x] **NTP + DST-Fix** (`configTime(tz, ntp)` statt getrennte Aufrufe — überlebt NTP-Sync)
+- [x] **Web-UI modernisiert** (Dark Mode, Cards, Accordion, Responsive Design)
+
+### v1.6.x
+- [x] **Erweiterte MQTT-Integration**
+  - Generischer `cmd/state`-Kanal ersetzt Präsenz-Logik (`<baseTopic>/cmd`, `<baseTopic>/state`)
+  - Helligkeit über MQTT steuerbar (`brightness:512`)
+  - Effekt-Wechsel über MQTT (`effect:clock`)
+  - Display ein/aus über MQTT (`display:on`)
+  - Auto-Brightness über MQTT (`autobrightness:on`)
+  - MQTT State mit `display`, `effect`, `brightness`, `autoBrightness`, `sensorTemp`, `sensorHumi`, Slide-Dauern
+- [x] **SensorClock-Effekt** (Temperatur/Luftfeuchtigkeit von Home Assistant via MQTT oder HTTP-API, 3-Folien-Slideshow)
+  - Sensordaten per MQTT (`temp:21.5`, `humi:63.0`) oder `POST /api/setSensorData`
+  - Foliendauern konfigurierbar (EEPROM-persistiert) via MQTT oder `POST /api/setSlideConfig`
+  - WebUI-Kachel und Konfigurationssektion
+- [x] **Input-Validierung** (TZ-String vor `setenv()`, MQTT-Topic Wildcards `+#/` blockiert)
+- [x] **Security-Fixes** (MQTT-Topic-Validierung, TZ-Zeichensatz-Check)
+
+---
+
+## 🚀 Kurzfristig (v1.6.x – v1.7.x)
 
 ### Code-Optimierung
 - [ ] **Logging-Makros statt inline-Funktionen**
   - Problem: Bei deaktiviertem Logging werden Parameter trotzdem evaluiert
   - Lösung: Makros verwenden (`#define debugLog(...) ((void)0)`)
-  - Vorteil: Kein unnötiger Code, bessere Performance
-  - Datei: `Logging.h` Zeile 199-203
+  - Datei: `Logging.h` Z. 199–203
 
 - [ ] **Zwei Build-Varianten in GitHub**
   - Variante 1: Mit erweitertem Logging (`DEBUG_LOGGING_ENABLED`)
-  - Variante 2: Mit einfachem Serial-Logging (nur `Serial.println`)
-  - Lösung: Conditional Compilation erweitern oder Git Branches mit Auto-Sync
-  - Vorteil: Benutzer können Variante wählen
+  - Variante 2: Mit einfachem Serial-Logging
+  - Lösung: Conditional Compilation erweitern oder Git Branches
 
-- [ ] **EEPROM-Migration verbessern**
-  - Automatische Migration zwischen Versionen testen
-  - Validierung der Checksumme robuster machen
-  - Datei: `IkeaObegraensad.ino` EEPROM-Funktionen
+- [ ] **EEPROM-Größe anpassen**
+  - Aktuell: `EEPROM.begin(1024)`, genutzt: ~521 Bytes
+  - Verbesserung: `EEPROM.begin(528)` spart ~500 Bytes Heap
+  - Achtung: `calculateEEPROMChecksum()` iteriert bis `EEPROM_SIZE` → Breaking Change, Migration nötig
 
 ### Stabilität
 - [ ] **WiFi-Reconnect robuster**
-  - Aktuell: Einfacher `WiFi.reconnect()` Aufruf
   - Verbesserung: Mehrere Versuche mit Backoff, Status-Überwachung
   - Datei: `IkeaObegraensad.ino` `setupWiFi()` und `loop()`
 
 - [ ] **SPIFFS-Fehlerbehandlung verbessern**
   - Aktuell: Reinitialisierung alle 5 Minuten
-  - Verbesserung: Bessere Fehlerdiagnose, alternative Strategien
   - Datei: `Logging.h` SPIFFS-Checks
 
-- [ ] **Watchdog-Fütterung optimieren**
-  - Aktuell: Viele manuelle `ESP.wdtFeed()` Aufrufe
-  - Verbesserung: Automatisches Watchdog-Management in kritischen Funktionen
-  - Datei: `IkeaObegraensad.ino` überall
+- [ ] **Watchdog-Fütterung konsolidieren**
+  - Aktuell: Viele manuelle `ESP.wdtFeed()`-Aufrufe
+  - Verbesserung: Wrapper-Funktion für kritische Operationen
 
-## 📅 Mittelfristig (v1.6.x - v1.7.x)
+## 📅 Mittelfristig (v1.7.x – v1.8.x)
 
 ### Neue Features
-- [ ] **Mehrere Effekte gleichzeitig**
-  - Effekte überblenden (z.B. Uhr + Wetter)
-  - Effekt-Layering-System
-  - Datei: Neue `EffectManager.h`
-
-- [ ] **Wetter-Integration**
-  - OpenWeatherMap API Integration
-  - Temperatur/Icon auf Display
-  - Konfigurierbar über Web-UI
-  - Datei: Neue `Weather.h`, `WeatherEffect.h`
+- [ ] **Wetter-Integration (Erweiterung SensorClock)**
+  - SensorClock zeigt bereits lokale Sensordaten — Erweiterung um externe Wetterdaten möglich
+  - OpenWeatherMap API, Icon-Symbole auf Display
+  - Alternativ: Home Assistant liefert Wetterdaten via MQTT (wie Temp/Humi)
+  - Datei: `SensorClock.h` erweitern oder neue `WeatherEffect.h`
 
 - [ ] **Scheduler für Effekte**
-  - Automatischer Effekt-Wechsel nach Zeitplan
-  - Beispiel: Uhr tagsüber, Effekte abends
+  - Automatischer Effekt-Wechsel nach Zeitplan (z.B. Uhr tagsüber, SensorClock nachts)
   - Konfigurierbar über Web-UI
   - Datei: Neue `Scheduler.h`
 
-- [ ] **Erweiterte MQTT-Integration**
-  - Mehrere Topics unterstützen (nicht nur Präsenz)
-  - Helligkeit über MQTT steuern
-  - Effekt-Wechsel über MQTT
-  - Home Assistant Auto-Discovery verbessern
-  - Datei: `IkeaObegraensad.ino` MQTT-Sektion
+- [ ] **Mehrere Effekte überblenden**
+  - Effekt-Layering-System
+  - Datei: Neue `EffectManager.h`
 
 - [ ] **WebSocket für Live-Updates**
   - Aktuell: Polling alle X Sekunden
   - Verbesserung: WebSocket für Echtzeit-Updates
-  - Vorteil: Weniger Server-Last, bessere UX
   - Datei: `WebInterface.h` erweitern
 
 ### Benutzerfreundlichkeit
-- [ ] **Web-UI modernisieren**
-  - Aktuell: Basis-HTML
-  - Verbesserung: Modernes Framework (z.B. Bootstrap, Tailwind)
-  - Dark Mode
-  - Responsive Design
-  - Datei: `WebInterface.h` komplett überarbeiten
-
 - [ ] **Effekt-Vorschau im Web-Interface**
-  - Mini-Vorschau jedes Effekts
-  - Screenshots/Animationen
+  - Mini-Vorschau oder Screenshot jedes Effekts
   - Datei: `WebInterface.h`
 
 - [ ] **Konfigurations-Assistent**
-  - Schritt-für-Schritt Setup für neue Benutzer
-  - WiFi, MQTT, NTP in einem Flow
+  - Schritt-für-Schritt Setup für neue Benutzer (WiFi, MQTT, NTP)
   - Datei: Neue `SetupWizard.h`
-
-- [ ] **Mehrsprachigkeit**
-  - Deutsch/Englisch (und mehr)
-  - Konfigurierbar über Web-UI
-  - Datei: Neue `Translations.h`
 
 ### Performance
 - [ ] **Frame-Rate-Optimierung**
-  - Aktuell: 50ms pro Frame (20 FPS)
-  - Ziel: 30ms pro Frame (33 FPS) für flüssigere Animationen
-  - Datei: Alle `Effect.h` Dateien
+  - Aktuell: 50 ms/Frame (20 FPS) → Ziel: 33 ms/Frame (30 FPS)
+  - Datei: Alle `Effect.h`-Dateien
 
 - [ ] **Speicher-Optimierung**
-  - String-Operationen weiter reduzieren
-  - Statische Buffers wiederverwenden
-  - Heap-Fragmentierung minimieren
-  - Datei: `IkeaObegraensad.ino` überall
-
-- [ ] **EEPROM-Komprimierung**
-  - Aktuell: 1024 Bytes EEPROM
-  - Verbesserung: Komprimierung für mehr Daten
-  - Datei: EEPROM-Funktionen
+  - String-Operationen reduzieren, statische Buffer wiederverwenden
+  - `handleStatus()` JSON-Buffer (1536 Bytes) stream-basiert ersetzen
+  - Datei: `IkeaObegraensad.ino`
 
 ## 🔮 Langfristig (v2.0.x+)
 
 ### Hardware-Erweiterungen
 - [ ] **Mehrere Buttons**
-  - Aktuell: Ein Button (D4) für Effekt-Wechsel
-  - Erweiterung: Mehrere Buttons für verschiedene Funktionen
-  - Beispiel: Vor/Zurück, Helligkeit +/-, Menü
+  - Vor/Zurück, Helligkeit +/-, Menü
   - Datei: Neue `ButtonManager.h`
 
-- [ ] **Zusätzliche Sensoren**
-  - Temperatur-Sensor (DS18B20)
-  - Luftfeuchtigkeit (DHT22)
-  - Bewegungssensor (PIR)
-  - Datei: Neue `Sensors.h`
+- [ ] **Lokale Sensoren direkt anschließen**
+  - Aktuell: Sensordaten kommen von Home Assistant via MQTT
+  - Erweiterung: BME280/DHT22 direkt am ESP8266 (I²C/1-Wire)
+  - SensorClock würde direkt vom Sensor lesen statt auf Push zu warten
+  - Datei: `SensorClock.h`, neue `LocalSensor.h`
 
 - [ ] **SD-Karte Support**
-  - Für größere Logs
-  - Custom Effekte speichern
-  - Backup auf SD-Karte
+  - Größere Logs, Custom-Effekte, Backup
   - Datei: Neue `SDCard.h`
 
 ### Erweiterte Features
+- [ ] **Restore-Feature vervollständigen**
+  - `POST /api/restore` parst JSON aktuell nicht vollständig (Stub vorhanden)
+  - Datei: `IkeaObegraensad.ino` `handleRestore()`
+
+- [ ] **Home Assistant Auto-Discovery**
+  - MQTT Discovery-Topics damit HA die Uhr automatisch erkennt
+  - Datei: `IkeaObegraensad.ino` MQTT-Sektion
+
 - [ ] **Effekt-Editor im Web-Interface**
-  - Visueller Editor für eigene Effekte
-  - Code-Generator
-  - Vorschau in Echtzeit
+  - Visueller Editor, Code-Generator, Echtzeit-Vorschau
   - Datei: Neue `EffectEditor.h`
 
-- [ ] **Plugin-System**
-  - Dynamisches Laden von Effekten
-  - Community-Effekte
-  - Plugin-Repository
-  - Datei: Neue `PluginSystem.h`
-
 - [ ] **Multi-Device-Synchronisation**
-  - Mehrere Displays synchronisieren
-  - Master/Slave-Modus
+  - Mehrere Displays synchronisieren, Master/Slave-Modus
   - Datei: Neue `SyncManager.h`
-
-- [ ] **Machine Learning für Auto-Brightness**
-  - Lernen von Benutzer-Präferenzen
-  - Adaptive Helligkeits-Kurven
-  - Datei: `updateAutoBrightness()` erweitern
 
 ### Code-Qualität
 - [ ] **Unit-Tests**
   - Framework: ArduinoUnit oder PlatformIO Test
-  - Tests für kritische Funktionen (EEPROM, Logging)
-  - CI/CD Integration
-  - Datei: Neue `tests/` Verzeichnis
+  - Tests für EEPROM-Funktionen, Validierungsfunktionen, Effect-Rendering
+  - Datei: Neues `tests/`-Verzeichnis
 
-- [ ] **Code-Dokumentation**
-  - Doxygen-Kommentare
-  - API-Dokumentation
-  - Architektur-Diagramme
-  - Datei: Überall
-
-- [ ] **Refactoring**
-  - Große Funktionen aufteilen
-  - Design Patterns anwenden
-  - Code-Duplikation reduzieren
-  - Datei: `IkeaObegraensad.ino` (sehr groß!)
+- [ ] **Refactoring `IkeaObegraensad.ino`**
+  - Datei ist ~2400 Zeilen → Handler in eigene Module auslagern
+  - Design Patterns anwenden, Code-Duplikation reduzieren
 
 - [ ] **PlatformIO Migration**
-  - Aktuell: Arduino IDE
-  - Vorteil: Bessere Dependency-Management, CI/CD
+  - Besseres Dependency-Management, CI/CD
   - Datei: Neue `platformio.ini`
 
 ## 🔒 Sicherheit
 
+- [x] **Input-Validierung TZ und MQTT-Topic** (erledigt in v1.6.2)
 - [ ] **OTA-Passwort aus EEPROM**
   - Aktuell: Hardcoded in Code
-  - Verbesserung: Konfigurierbar über Web-UI
   - Datei: `IkeaObegraensad.ino` `setup()`
-
 - [ ] **API-Authentifizierung**
-  - Aktuell: Keine Authentifizierung
-  - Verbesserung: Token-basierte Auth
+  - Token-basierte Auth für alle API-Endpoints
   - Datei: `IkeaObegraensad.ino` API-Handler
-
 - [ ] **HTTPS Support**
-  - Aktuell: Nur HTTP
-  - Verbesserung: HTTPS mit Self-Signed Cert
+  - Self-Signed Cert, MQTT TLS
   - Datei: Web-Server Setup
-
-- [ ] **Input-Validierung erweitern**
-  - Aktuell: Basis-Validierung
-  - Verbesserung: Sanitization, SQL-Injection-Schutz
-  - Datei: Alle API-Handler
 
 ## 📊 Monitoring & Diagnose
 
 - [ ] **Erweiterte Diagnose-Seite**
-  - Heap-Visualisierung
-  - Netzwerk-Statistiken
-  - Performance-Metriken
+  - Heap-Visualisierung, Netzwerk-Statistiken, Performance-Metriken
   - Datei: Neue `Diagnostics.h`
 
-- [ ] **Remote-Logging verbessern**
-  - Aktuell: HTTP POST zu Server
-  - Verbesserung: MQTT-Logging, Syslog
-  - Datei: `Logging.h`
-
 - [ ] **Health-Checks**
-  - Automatische Selbst-Diagnose
-  - Warnungen bei Problemen
+  - Automatische Selbst-Diagnose, Warnungen bei Problemen
   - Datei: Neue `HealthCheck.h`
 
 ## 🎨 Neue Effekte
 
-- [ ] **Text-Scroller**
-  - Custom Text anzeigen
-  - RSS-Feed Integration
-  - Datei: Neue `TextScroll.h`
-
-- [ ] **Visualisierer**
-  - Audio-Visualisierung (wenn Audio-Input verfügbar)
-  - FFT-basierte Effekte
-  - Datei: Neue `Visualizer.h`
-
-- [ ] **Spiele**
-  - Snake-Spiel (interaktiv)
-  - Pong
-  - Tetris
-  - Datei: Neue `Games/` Verzeichnis
-
-- [ ] **Kunst-Effekte**
-  - Mandelbrot-Set
-  - Conway's Game of Life
-  - Partikel-Systeme
-  - Datei: Neue Effekt-Dateien
+- [ ] **Text-Scroller** — Custom Text, RSS-Feed
+- [ ] **Conway's Game of Life**
+- [ ] **Mandelbrot-Set**
+- [ ] **Partikel-Systeme**
+- [ ] **Snake-Spiel (interaktiv)**
 
 ## 📝 Dokumentation
 
-- [ ] **Benutzer-Handbuch**
-  - Schritt-für-Schritt Anleitung
-  - Troubleshooting-Guide
-  - FAQ
-  - Datei: `docs/USER_MANUAL.md`
-
-- [ ] **Entwickler-Dokumentation**
-  - API-Referenz
-  - Effekt-Entwicklung-Guide
-  - Architektur-Übersicht
-  - Datei: `docs/DEVELOPER.md`
-
-- [ ] **Video-Tutorials**
-  - Setup-Anleitung
-  - Effekt-Erstellung
-  - MQTT-Konfiguration
-
-## 🔧 Wartbarkeit
-
-- [ ] **Versionierung verbessern**
-  - Semantic Versioning strikt einhalten
-  - Changelog automatisch generieren
-  - Datei: `CHANGELOG.md`
-
-- [ ] **GitHub Actions**
-  - Automatische Builds
-  - Tests ausführen
-  - Releases erstellen
-  - Datei: `.github/workflows/`
-
-- [ ] **Code-Formatierung**
-  - Clang-Format Konfiguration
-  - Automatische Formatierung bei Commit
-  - Datei: `.clang-format`
+- [ ] **Benutzer-Handbuch** (`docs/USER_MANUAL.md`)
+- [ ] **Entwickler-Dokumentation** — Effekt-Entwicklung-Guide, API-Referenz (`docs/DEVELOPER.md`)
+- [ ] **CHANGELOG.md** mit automatischer Generierung via GitHub Actions
 
 ---
 
 ## Priorisierung
 
 **Höchste Priorität:**
-1. Logging-Makros (Performance)
-2. Zwei Build-Varianten (Benutzerfreundlichkeit)
-3. WiFi-Reconnect robuster (Stabilität)
+1. WiFi-Reconnect robuster (Stabilität)
+2. Restore-Feature vervollständigen (Backup/Restore funktioniert aktuell nur halb)
+3. Home Assistant Auto-Discovery (größter Nutzen für HA-Nutzer)
 
 **Mittlere Priorität:**
-1. Web-UI modernisieren
-2. Wetter-Integration
-3. Erweiterte MQTT-Integration
+1. Scheduler für Effekte
+2. Lokale Sensoren direkt anschließen (SensorClock ohne HA-Abhängigkeit)
+3. WebSocket für Live-Updates
 
 **Niedrige Priorität:**
-1. Plugin-System
-2. Machine Learning
-3. Multi-Device-Sync
+1. Plugin-System / Effekt-Editor
+2. Multi-Device-Sync
+3. Machine Learning Auto-Brightness
 
 ---
 
-*Letzte Aktualisierung: 2024*
-*Version: 1.4.1*
+*Letzte Aktualisierung: 2026-04-10*
+*Aktuelle Version: 1.6.2*
