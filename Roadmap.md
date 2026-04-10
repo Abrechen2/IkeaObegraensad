@@ -46,7 +46,7 @@ Diese Roadmap enthält geplante Verbesserungen und Ideen für zukünftige Versio
   - Achtung: `calculateEEPROMChecksum()` iteriert bis `EEPROM_SIZE` → Breaking Change, Migration nötig
 
 ### Stabilität
-- [ ] **WiFi-Reconnect robuster**
+- [x] **WiFi-Reconnect robuster**
   - Verbesserung: Mehrere Versuche mit Backoff, Status-Überwachung
   - Datei: `IkeaObegraensad.ino` `setupWiFi()` und `loop()`
 
@@ -107,7 +107,7 @@ Diese Roadmap enthält geplante Verbesserungen und Ideen für zukünftige Versio
   - Vor/Zurück, Helligkeit +/-, Menü
   - Datei: Neue `ButtonManager.h`
 
-- [ ] **Lokale Sensoren direkt anschließen**
+- [x] **Lokale Sensoren direkt anschließen**
   - Aktuell: Sensordaten kommen von Home Assistant via MQTT
   - Erweiterung: BME280/DHT22 direkt am ESP8266 (I²C/1-Wire)
   - SensorClock würde direkt vom Sensor lesen statt auf Push zu warten
@@ -118,7 +118,7 @@ Diese Roadmap enthält geplante Verbesserungen und Ideen für zukünftige Versio
   - Datei: Neue `SDCard.h`
 
 ### Erweiterte Features
-- [ ] **Restore-Feature vervollständigen**
+- [x] **Restore-Feature vervollständigen**
   - `POST /api/restore` parst JSON aktuell nicht vollständig (Stub vorhanden)
   - Datei: `IkeaObegraensad.ino` `handleRestore()`
 
@@ -207,4 +207,4 @@ Diese Roadmap enthält geplante Verbesserungen und Ideen für zukünftige Versio
 ---
 
 *Letzte Aktualisierung: 2026-04-10*
-*Aktuelle Version: 1.6.2*
+*Aktuelle Version: 1.7.0*

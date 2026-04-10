@@ -19,7 +19,7 @@ extern "C" {
 //#define DEBUG_LOGGING_ENABLED
 
 // Firmware-Version
-#define FIRMWARE_VERSION "1.6.2"
+#define FIRMWARE_VERSION "1.7.0"
 
 // === Lokaler Sensor ===
 // Eine Zeile einkommentieren, oder beide auskommentiert lassen (MQTT-only):
