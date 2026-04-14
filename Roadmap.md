@@ -10,6 +10,12 @@ Diese Roadmap enthält geplante Verbesserungen und Ideen für zukünftige Versio
 - [x] **NTP + DST-Fix** (`configTime(tz, ntp)` statt getrennte Aufrufe — überlebt NTP-Sync)
 - [x] **Web-UI modernisiert** (Dark Mode, Cards, Accordion, Responsive Design)
 
+### v1.7.1
+- [x] **Fix: Uhr zeigt manchmal falsche Zeit** (`checkNtpSync()`)
+  - Defekte Drift-Erkennung entfernt: `currentTime - lastValidTime` war nicht die Drift, sondern das Aufrufintervall (~3600s) und triggerte dadurch alle 2 Stunden einen Fehl-Resync
+  - Während des Resync-Fensters (configTime → setupNTP) wurde die TZ-Variable kurzzeitig geleert → Uhr zeigte ~15–20s UTC statt Lokalzeit
+  - Drift-Korrektur erledigt jetzt der ESP8266-SNTP-Client im Hintergrund; 6h-Hardresync bleibt als Sicherheitsnetz
+
 ### v1.6.x
 - [x] **Erweiterte MQTT-Integration**
   - Generischer `cmd/state`-Kanal ersetzt Präsenz-Logik (`<baseTopic>/cmd`, `<baseTopic>/state`)
@@ -207,4 +213,4 @@ Diese Roadmap enthält geplante Verbesserungen und Ideen für zukünftige Versio
 ---
 
 *Letzte Aktualisierung: 2026-04-10*
-*Aktuelle Version: 1.7.0*
+*Aktuelle Version: 1.7.1*

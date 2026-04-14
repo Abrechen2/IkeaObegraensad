@@ -19,7 +19,7 @@ extern "C" {
 //#define DEBUG_LOGGING_ENABLED
 
 // Firmware-Version
-#define FIRMWARE_VERSION "1.7.0"
+#define FIRMWARE_VERSION "1.7.1"
 
 // === Lokaler Sensor ===
 // Eine Zeile einkommentieren, oder beide auskommentiert lassen (MQTT-only):
@@ -1761,37 +1761,30 @@ void setupNTP() {
   }
 }
 
-// Prüft ob NTP-Zeit noch synchronisiert ist und re-synchronisiert bei Bedarf
+// Prüft ob NTP-Zeit noch synchronisiert ist und re-synchronisiert bei Bedarf.
+// Wird einmal pro Stunde aus loop() aufgerufen.
+//
+// WICHTIG: Hier KEIN Drift-Check per (currentTime - lastCheckTime) — das misst
+// nur das Aufrufintervall (~3600s), nicht die tatsächliche Drift. Die frühere
+// Implementierung triggerte dadurch alle 2 Stunden einen Fehl-Resync; während
+// des Resync-Fensters konnte configTime() die TZ-Variable kurzzeitig leeren,
+// sodass die Uhr ~15–20s UTC statt Lokalzeit zeigte.
+//
+// Echte Drift-Korrektur erledigt der ESP8266-SNTP-Client im Hintergrund
+// (periodische Queries alle ~1h). Zusätzlich erzwingt loop() alle 6 Stunden
+// einen vollständigen Resync als Sicherheitsnetz (FULL_NTP_SYNC_INTERVAL).
 void checkNtpSync() {
   if (WiFi.status() != WL_CONNECTED) {
     return; // Kein WiFi = kein NTP-Check möglich
   }
-  
-  static time_t lastValidTime = 0;
+
   time_t currentTime = time(nullptr);
-  
-  // Prüfe ob Zeit gültig ist
+
+  // Prüfe nur, ob die Zeit grundsätzlich plausibel ist (z.B. nach RTC-Verlust).
   if (currentTime < 100000) {
-    Serial.println("[NTP_CHECK] Zeit ungültig, starte NTP-Sync...");
-    setupTimezone(); // Zeitzone sicherstellen
-    ntpConfigured = false; // Erzwinge erneutes Setup
-    return;
+    Serial.println("[NTP_CHECK] Zeit ungültig, erzwinge erneutes Setup...");
+    ntpConfigured = false; // Triggert setupNTP() im nächsten loop()
   }
-  
-  // Prüfe ob Zeit zu weit abweicht (mehr als 5 Minuten Differenz)
-  if (lastValidTime > 0) {
-    time_t timeDiff = abs((long)(currentTime - lastValidTime));
-    if (timeDiff > 300) { // Mehr als 5 Minuten Differenz
-      Serial.printf("[NTP_CHECK] Zeitabweichung erkannt (%ld Sekunden), starte NTP-Sync...\n", timeDiff);
-      setupTimezone(); // Zeitzone sicherstellen
-      ntpConfigured = false; // Erzwinge erneutes Setup
-      lastValidTime = 0; // Reset
-      return;
-    }
-  }
-  
-  // Zeit ist gültig, speichere für nächsten Check
-  lastValidTime = currentTime;
 }
 
 // JSON-Parsing Helpers für handleRestore() — kein ArduinoJson nötig
